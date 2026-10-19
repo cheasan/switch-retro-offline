@@ -67,6 +67,26 @@ expect "startsession"   '"Success":true' "$(curl -s -X POST "$BASE/dorequest.php
 expect "ping"           '"Success":true' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=ping&g=1234')"
 
 # ---------------------------------------------------------------------
+# Phase 5: retroarch.cfg rewiring (against a fixture copy)
+# ---------------------------------------------------------------------
+FIX=$(mktemp /tmp/opencode/retroarch.cfg.XXXXXX)
+cat > "$FIX" <<'EOF'
+cheevos_enable = "true"
+cheevos_username = "sam"
+cheevos_password = "hunter2"
+cheevos_hardcore_mode_enable = "true"
+EOF
+expect_eq "cfg: show unset" "cheevos_custom_host: <unset - real retroachievements.org>" "$(bash tools/ra-config.sh "$FIX" --show)"
+bash tools/ra-config.sh "$FIX" >/dev/null
+expect "cfg: proxy line set" 'cheevos_custom_host = "http://127.0.0.1:8080"' "$(grep '^cheevos_custom_host' "$FIX")"
+expect "cfg: other lines kept" 'cheevos_password = "hunter2"' "$(grep '^cheevos_password' "$FIX")"
+bash tools/ra-config.sh "$FIX" --url http://127.0.0.1:1234 >/dev/null
+expect "cfg: url override" '127.0.0.1:1234' "$(grep '^cheevos_custom_host' "$FIX")"
+bash tools/ra-config.sh "$FIX" --restore >/dev/null
+expect_eq "cfg: restore removes line" "0" "$(grep -c '^cheevos_custom_host' "$FIX" || true)"
+rm -f "$FIX" "$FIX.ra-offline.bak"
+
+# ---------------------------------------------------------------------
 # Phase 4: sync to the real server (faked here)
 # ---------------------------------------------------------------------
 FAKE_LOG=/tmp/opencode/fake_ra.log

@@ -12,11 +12,24 @@ Plan source: `~/Downloads/switch_sysmodule_development_plan.md`
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| 1 | Sysmodule boilerplate, heap, SD logging, paced loop | code done, compiles — hardware test pending |
+| 1 | Sysmodule boilerplate, heap, SD logging, paced loop | code done — hardware test pending |
 | 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | code done — desktop-tested |
 | 3 | RetroArch API mocking, cache dir, unlock queue file | code done — desktop-tested |
-| 4 | nifm network detection + background sync | **code done — 32/32 desktop tests pass** — hardware test pending |
-| 5 | Helper script to point RetroArch's cheevos URL at 127.0.0.1:8080 | pending |
+| 4 | nifm network detection + background sync | code done — desktop-tested |
+| 5 | RetroArch config rewiring helper | **code done — 37/37 desktop tests pass** |
+
+## Pointing RetroArch at the proxy (Phase 5)
+
+RetroArch reads `cheevos_custom_host` from retroarch.cfg (verified against
+RetroArch master `cheevos/cheevos.c`) and uses it as `<host>/dorequest.php`.
+
+```sh
+bash tools/ra-config.sh /run/media/<you>/<sd>/retroarch/retroarch.cfg   # proxy on
+bash tools/ra-config.sh .../retroarch.cfg --restore                     # back to real server
+bash tools/ra-config.sh .../retroarch.cfg --show                        # inspect
+```
+
+Restart RetroArch afterwards - it reads the config once at boot.
 
 ## Sync (Phase 4)
 
