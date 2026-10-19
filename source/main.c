@@ -108,6 +108,19 @@ void __appInit(void)
         fatalThrow(rc);
 
     bool sd = logger_init();
+    if (!sd) {
+        /* BOOT FORENSICS: never fail silently again. Surface exactly
+         * which layer refused, via the fatal screen / crash report. */
+        FsFileSystem pfs;
+        Result mrc = fsOpenSdCardFileSystem(&pfs);
+        if (R_FAILED(mrc))
+            fatalThrow(mrc);      /* fsp-srv refused SD: code says why */
+        Result crc = fsFsCreateDirectory(&pfs, "/switch/raoffline");
+        fsFsClose(&pfs);
+        if (R_FAILED(crc))
+            fatalThrow(crc);      /* raw fs works, dir create failed */
+        fatalThrow(MAKERESULT(164, 2)); /* raw fs fine; fopen() failed */
+    }
     logger_log("init: stage 1 enter (sm+fs ok, sd log %s)", sd ? "up" : "DOWN");
 
     /* Pin the HOS version so libnx version guards behave correctly. */

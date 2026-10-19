@@ -1,12 +1,16 @@
 /**
- * logger.c - tiny SD-card logger for ra-offline (Phase 1).
+ * logger.c - tiny SD-card logger for ra-offline.
  *
  * Design notes:
- *  - fopen/fclose per call would be safest but slower; we keep one FILE*
- *    open for the module lifetime and fflush() after every line, which is
- *    a good middle ground for a sysmodule that logs a few lines per hour.
+ *  - We deliberately do NOT keep the log file open. A permanently held
+ *    write handle on FAT32 blocks every other process (sys-ftpd, probes)
+ *    from even reading the file, which made the log invisible over FTP
+ *    for the entire hardware bring-up. Instead: open/append/close per
+ *    line. A sysmodule logs a few lines per hour; the cost is nil.
+ *  - Every line is flushed at write time by construction, so the log
+ *    always survives a crash or force-termination.
  *  - Timestamps are uptime seconds (svcGetSystemTick based); wall-clock
- *    time is deliberately not used in Phase 1 (no extra service deps).
+ *    time is deliberately not used (no extra service deps).
  */
 #include <stdio.h>
 #include <stdarg.h>
@@ -14,12 +18,11 @@
 #include <switch.h>
 #include "logger.h"
 
-static FILE *g_log = NULL;
 static bool g_sd_mounted = false;
 
 bool logger_init(void)
 {
-    if (g_log != NULL)   /* already up (e.g. inited early from __appInit) */
+    if (g_sd_mounted)
         return true;
 
     Result rc = fsdevMountSdmc();
@@ -27,22 +30,24 @@ bool logger_init(void)
         return false;
     g_sd_mounted = true;
 
-    /* No fsdevEnsureDirectory in current libnx: create both levels via the
-     * raw service API and ignore AlreadyExists; fopen() below is the real
-     * success test. */
+    /* No fsdevEnsureDirectory in current libnx: create both levels via
+     * the raw service API and ignore AlreadyExists; fopen() in
+     * logger_log() is the real success test. */
     FsFileSystem *sd = fsdevGetDeviceFileSystem("sdmc");
     if (sd != NULL) {
         fsFsCreateDirectory(sd, "/switch");
         fsFsCreateDirectory(sd, "/switch/raoffline");
     }
-
-    g_log = fopen(RA_LOG_PATH, "a");
-    return g_log != NULL;
+    return true;
 }
 
 void logger_log(const char *fmt, ...)
 {
-    if (g_log == NULL)
+    if (!g_sd_mounted)
+        return;
+
+    FILE *f = fopen(RA_LOG_PATH, "a");
+    if (f == NULL)
         return;
 
     /* Uptime in seconds with millisecond precision. */
@@ -50,23 +55,19 @@ void logger_log(const char *fmt, ...)
     unsigned long secs = (unsigned long)(ns / 1000000000ULL);
     unsigned long msec = (unsigned long)((ns / 1000000ULL) % 1000ULL);
 
-    fprintf(g_log, "[%7lu.%03lu] ", secs, msec);
+    fprintf(f, "[%7lu.%03lu] ", secs, msec);
 
     va_list va;
     va_start(va, fmt);
-    vfprintf(g_log, fmt, va);
+    vfprintf(f, fmt, va);
     va_end(va);
 
-    fputc('\n', g_log);
-    fflush(g_log);
+    fputc('\n', f);
+    fclose(f);
 }
 
 void logger_exit(void)
 {
-    if (g_log != NULL) {
-        fclose(g_log);
-        g_log = NULL;
-    }
     if (g_sd_mounted) {
         fsdevUnmountAll();
         g_sd_mounted = false;
