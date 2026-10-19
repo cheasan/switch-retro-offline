@@ -13,6 +13,11 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
+
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
 
 #include "http_server.h"
 #include "logger.h"
@@ -29,8 +34,10 @@
 #define RECV_TIMEOUT_S 10
 
 static int g_listen_fd = -1;
+static uint16_t g_port = 0;
 
-int http_server_start(uint16_t port)
+/** Create the listener socket (socket+bind+listen). Returns fd or -1. */
+static int make_listener(uint16_t port)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -70,12 +77,32 @@ int http_server_start(uint16_t port)
         return -1;
     }
 
-    g_listen_fd = fd;
 #ifdef RA_BIND_ANY
     logger_log("http: listening on 0.0.0.0:%u (TEST BUILD)", port);
 #else
     logger_log("http: listening on 127.0.0.1:%u", port);
 #endif
+    return fd;
+}
+
+/** One second of sleep, host and Switch. */
+static void sleep_1s(void)
+{
+#ifdef __SWITCH__
+    svcSleepThread(1000000000ULL);
+#else
+    struct timespec ts = {1, 0};
+    nanosleep(&ts, NULL);
+#endif
+}
+
+int http_server_start(uint16_t port)
+{
+    int fd = make_listener(port);
+    if (fd < 0)
+        return -1;
+    g_listen_fd = fd;
+    g_port = port;
     return 0;
 }
 
@@ -328,8 +355,24 @@ void http_server_serve_forever(volatile bool *running, http_handler_fn handler)
                 break; /* unblocked by stop() */
             if (errno == EINTR)
                 continue;
-            logger_log("http: accept failed errno=%d", errno);
-            break;
+            /* Console sleep destroys the bsd session (seen as errno=113
+             * on the loopback listener). This is not fatal: drop the
+             * dead listener and rebuild it once the system is back. */
+            logger_log("http: accept failed errno=%d - rebuilding listener",
+                       errno);
+            close(g_listen_fd);
+            g_listen_fd = -1;
+            while (*running) {
+                sleep_1s();
+                int nfd = make_listener(g_port);
+                if (nfd >= 0) {
+                    g_listen_fd = nfd;
+                    break;
+                }
+            }
+            if (g_listen_fd >= 0)
+                logger_log("http: listener rebuilt on port %u", g_port);
+            continue;
         }
         handle_connection(fd);
         close(fd);
