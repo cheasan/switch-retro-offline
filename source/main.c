@@ -100,8 +100,15 @@ void __appInit(void)
     if (R_FAILED(rc))
         fatalThrow(rc);   /* sm is needed for fs itself; can't log yet */
 
+    /* fs must be initialised before fsdevMountSdmc: we override the
+     * libnx default __appInit, which normally does this for us. Its
+     * absence is why the hardware run never produced a log. */
+    rc = fsInitialize();
+    if (R_FAILED(rc))
+        fatalThrow(rc);
+
     bool sd = logger_init();
-    logger_log("init: stage 1 enter (sm ok, sd log %s)", sd ? "up" : "DOWN");
+    logger_log("init: stage 1 enter (sm+fs ok, sd log %s)", sd ? "up" : "DOWN");
 
     /* Pin the HOS version so libnx version guards behave correctly. */
     if (hosversionGet() == 0) {
@@ -140,6 +147,7 @@ void __appExit(void)
     if (R_SUCCEEDED(g_nifm_rc))
         nifmExit();
     socketExit();
+    fsExit();
     smExit();
 }
 
