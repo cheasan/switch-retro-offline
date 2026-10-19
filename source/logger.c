@@ -19,6 +19,9 @@ static bool g_sd_mounted = false;
 
 bool logger_init(void)
 {
+    if (g_log != NULL)   /* already up (e.g. inited early from __appInit) */
+        return true;
+
     Result rc = fsdevMountSdmc();
     if (R_FAILED(rc))
         return false;

@@ -23,6 +23,15 @@ host-test:
 host-run: host-test
 	./build-host/ra-test
 
+#-----------------------------------------------------------------------
+# Homebrew test build (.nro) - same code, zero boot risk, run from
+# hbmenu. Server binds 0.0.0.0 so a PC can probe it on the LAN.
+#   make nro     (needs DEVKITPRO, produces ra-offline-nro.nro)
+#-----------------------------------------------------------------------
+.PHONY: nro
+nro:
+	@$(MAKE) --no-print-directory -f $(CURDIR)/Makefile.nro
+
 # devkitPro is only required for the Switch build goals (all/build/clean).
 SWITCH_GOALS := all $(BUILD)
 ifneq ($(filter $(SWITCH_GOALS),$(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)),)

@@ -44,11 +44,23 @@ int http_server_start(uint16_t port)
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof addr);
     addr.sin_family      = AF_INET;
+#ifdef RA_BIND_ANY
+    /* NRO test builds only: bind every interface so the server can be
+     * probed from a PC on the LAN (192.168.x.x:8080). Never for the
+     * sysmodule - it must stay loopback-only. */
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+#else
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+#endif
     addr.sin_port        = htons(port);
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0) {
-        logger_log("http: bind 127.0.0.1:%u failed errno=%d", port, errno);
+        logger_log("http: bind %s:%u failed errno=%d",
+#ifdef RA_BIND_ANY
+                   "0.0.0.0", port, errno);
+#else
+                   "127.0.0.1", port, errno);
+#endif
         close(fd);
         return -1;
     }
@@ -59,7 +71,11 @@ int http_server_start(uint16_t port)
     }
 
     g_listen_fd = fd;
+#ifdef RA_BIND_ANY
+    logger_log("http: listening on 0.0.0.0:%u (TEST BUILD)", port);
+#else
     logger_log("http: listening on 127.0.0.1:%u", port);
+#endif
     return 0;
 }
 

@@ -35,8 +35,12 @@
 #define SERVER_THREAD_STACK    0x10000        /* 64 KB */
 #define SERVER_THREAD_PRIO     0x2d           /* just below main (42)  */
 
-/* We are a background system module, not an applet. */
+/* We are a background system module, not an applet. Not for the NRO
+ * build: homebrew gets its applet type from hbloader, and forcing None
+ * would make appletMainLoop() exit instantly. */
+#ifndef RA_NRO
 u32 __nx_applet_type = AppletType_None;
+#endif
 
 static Thread g_server_thread;
 static volatile bool g_running = true;
@@ -82,30 +86,52 @@ void __libnx_initheap(void)
     fake_heap_end = inner_heap + sizeof(inner_heap);
 }
 
-/** libnx hook: acquire the services the module needs. */
+/** libnx hook: acquire the services the module needs.
+ *
+ * BOOT DIAGNOSTICS (v0.4.1-diag): the hardware test showed the module
+ * dying before main()'s logger existed, so nothing was ever written to
+ * the log. Now SD logging comes up FIRST and every init stage writes a
+ * marker. Whatever call hangs or crashes, the last marker present in
+ * sysmodule.log names the culprit.
+ */
 void __appInit(void)
 {
     Result rc = smInitialize();
     if (R_FAILED(rc))
-        fatalThrow(rc);
+        fatalThrow(rc);   /* sm is needed for fs itself; can't log yet */
+
+    bool sd = logger_init();
+    logger_log("init: stage 1 enter (sm ok, sd log %s)", sd ? "up" : "DOWN");
 
     /* Pin the HOS version so libnx version guards behave correctly. */
     if (hosversionGet() == 0) {
+        logger_log("init: stage 2 -> setsysInitialize");
         rc = setsysInitialize();
+        logger_log("init: setsys rc=0x%x", rc);
         if (R_SUCCEEDED(rc)) {
             SetSysFirmwareVersion fw;
-            if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw)))
+            if (R_SUCCEEDED(setsysGetFirmwareVersion(&fw))) {
                 hosversionSet(MAKEHOSVERSION(fw.major, fw.minor, fw.micro));
+                logger_log("init: hosversion pinned %d.%d.%d",
+                           fw.major, fw.minor, fw.micro);
+            }
             setsysExit();
         }
     }
 
+    logger_log("init: stage 3 -> socketInitializeDefault");
     rc = socketInitializeDefault(); /* bsd:u - loopback HTTP server */
-    if (R_FAILED(rc))
+    if (R_FAILED(rc)) {
+        logger_log("init: FATAL socket rc=0x%x", rc);
         fatalThrow(rc);
+    }
+    logger_log("init: stage 4 socket ok");
 
+    logger_log("init: stage 5 -> nifmInitialize(User)");
     /* Best effort: if nifm fails we simply never sync (log says so). */
     g_nifm_rc = nifmInitialize(NifmServiceType_User);
+    logger_log("init: stage 6 nifm rc=0x%x%s",
+               g_nifm_rc, R_SUCCEEDED(g_nifm_rc) ? " (ok)" : " (sync off)");
 }
 
 /** libnx hook: release services in reverse order of acquisition. */
@@ -138,7 +164,11 @@ int main(int argc, char *argv[])
     (void)argv;
 
     bool have_log = logger_init();
-    logger_log("ra-offline v0.4 (phase 4) starting");
+#ifdef RA_NRO
+    logger_log("ra-offline v0.4.1-diag (NRO build) starting");
+#else
+    logger_log("ra-offline v0.4.1-diag (sysmodule) starting");
+#endif
     if (!have_log)
         logger_log("WARNING: SD logging unavailable; continuing headless");
     if (R_FAILED(g_nifm_rc))

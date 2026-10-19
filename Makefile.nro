@@ -1,0 +1,71 @@
+#-----------------------------------------------------------------------
+# Makefile.nro - homebrew (.nro) test build of ra-offline.
+#
+# Same sources as the sysmodule, but launched from hbmenu like any
+# homebrew: if it hangs or crashes, the console is not involved in boot
+# at all - HOME menu exit always gets you back.
+#
+# Extra flags vs the sysmodule build:
+#   -DRA_NRO      : homebrew applet handling (skip AppletType_None)
+#   -DRA_BIND_ANY : HTTP server binds 0.0.0.0 so a PC on the LAN can
+#                   probe it (sysmodule stays loopback-only)
+#
+#   make -f Makefile.nro        -> ra-offline-nro.nro
+#-----------------------------------------------------------------------
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=/opt/devkitpro")
+endif
+
+TOPDIR  := $(CURDIR)
+TARGET  := ra-offline-nro
+BUILD   := build-nro
+SOURCES := source
+INCLUDES:= include
+ICON    := assets/icon.jpg
+
+TOOLCHAIN := $(DEVKITPRO)/devkitA64
+PREFIX    := $(TOOLCHAIN)/bin/aarch64-none-elf-
+CC        := $(PREFIX)gcc
+
+ARCH    := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIE
+CFLAGS  := -g -Wall -Wextra -O2 -ffunction-sections $(ARCH) \
+           -D__SWITCH__ -DRA_NRO -DRA_BIND_ANY
+LDFLAGS := -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) \
+           -Wl,-Map,$(TARGET).map
+
+LIBS    := -lnx
+LIBDIRS := $(DEVKITPRO)/portlibs/switch $(DEVKITPRO)/libnx
+
+INCLUDE := $(foreach dir,$(INCLUDES),-I$(TOPDIR)/$(dir)) \
+           $(foreach dir,$(LIBDIRS),-I$(dir)/include)
+LIBPATHS:= $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+
+ELF2NRO  := $(DEVKITPRO)/tools/bin/elf2nro
+NACPTOOL := $(DEVKITPRO)/tools/bin/nacptool
+
+CFILES  := $(wildcard $(SOURCES)/*.c)
+OFILES  := $(patsubst $(SOURCES)/%.c,$(BUILD)/%.o,$(CFILES))
+
+.PHONY: all clean
+all: $(TARGET).nro
+
+$(BUILD):
+	@mkdir -p $@
+
+$(BUILD)/%.o: $(SOURCES)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(INCLUDE) -MMD -MP -c $< -o $@
+
+$(TARGET).nacp: $(ICON)
+	$(NACPTOOL) --create "ra-offline diag" "cheasan" "0.4.1" $@
+
+$(TARGET).elf: $(OFILES)
+	$(CC) $(LDFLAGS) $^ $(LIBS) $(LIBPATHS) -o $@
+
+$(TARGET).nro: $(TARGET).elf $(TARGET).nacp
+	$(ELF2NRO) $< $@ --nacp=$(word 2,$^) \
+		$(if $(ICON),--icon=$(ICON),)
+
+clean:
+	@rm -fr $(BUILD) $(TARGET).elf $(TARGET).nro $(TARGET).nacp $(TARGET).map
+
+-include $(OFILES:.o=.d)
