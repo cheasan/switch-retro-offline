@@ -73,8 +73,9 @@ void __appExit(void)
 static void log_heap_state(void)
 {
     struct mallinfo mi = mallinfo();
-    logger_log("heap: arena=%u used=%u free=%d",
-               mi.arena, mi.uordblks, mi.fordblks);
+    logger_log("heap: arena=%lu used=%lu free=%lu",
+               (unsigned long)mi.arena, (unsigned long)mi.uordblks,
+               (unsigned long)mi.fordblks);
 }
 
 int main(int argc, char *argv[])
@@ -100,8 +101,8 @@ int main(int argc, char *argv[])
 
         if (++ticks % HEARTBEAT_EVERY_TICKS == 0) {
             struct mallinfo mi = mallinfo();
-            logger_log("heartbeat: uptime=%us heap_used=%u",
-                       ticks / 10, mi.uordblks);
+            logger_log("heartbeat: uptime=%us heap_used=%lu",
+                       ticks / 10, (unsigned long)mi.uordblks);
         }
 
         /* Phase 2: poll the HTTP server thread / accept loop.

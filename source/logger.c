@@ -23,9 +23,14 @@ bool logger_init(void)
         return false;
     g_sd_mounted = true;
 
-    rc = fsdevEnsureDirectory("/switch/raoffline");
-    if (R_FAILED(rc))
-        return false;
+    /* No fsdevEnsureDirectory in current libnx: create both levels via the
+     * raw service API and ignore AlreadyExists; fopen() below is the real
+     * success test. */
+    FsFileSystem *sd = fsdevGetDeviceFileSystem("sdmc");
+    if (sd != NULL) {
+        fsFsCreateDirectory(sd, "/switch");
+        fsFsCreateDirectory(sd, "/switch/raoffline");
+    }
 
     g_log = fopen(RA_LOG_PATH, "a");
     return g_log != NULL;
@@ -59,7 +64,7 @@ void logger_exit(void)
         g_log = NULL;
     }
     if (g_sd_mounted) {
-        fsdevExit();
+        fsdevUnmountAll();
         g_sd_mounted = false;
     }
 }
