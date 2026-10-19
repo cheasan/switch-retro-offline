@@ -28,6 +28,16 @@ static pthread_mutex_t g_qlock = PTHREAD_MUTEX_INITIALIZER;
 #define ESC_Q_CAP 1024
 #define ESC_B_CAP 4096
 
+void ra_queue_lock(void)
+{
+    QLOCK();
+}
+
+void ra_queue_unlock(void)
+{
+    QUNLOCK();
+}
+
 bool ra_queue_append(const char *qs, const char *body)
 {
     bool has_q = qs != NULL && qs[0] != '\0';

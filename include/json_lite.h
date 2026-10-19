@@ -21,6 +21,9 @@ bool json_get_string(const char *json, const char *key, char *out, size_t outsz)
 /** Read an integer value for key. */
 bool json_get_int(const char *json, const char *key, long *out);
 
+/** Read a boolean literal (true/false) for key. */
+bool json_get_bool(const char *json, const char *key, bool *out);
+
 /** Escape a raw string for embedding in JSON (quotes, backslash, C0).
  *  Always NUL-terminates; truncates if needed. */
 void json_escape(const char *in, char *out, size_t outsz);

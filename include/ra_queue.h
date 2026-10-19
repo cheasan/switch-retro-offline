@@ -17,4 +17,8 @@
  *  verbatim against the real server. */
 bool ra_queue_append(const char *qs, const char *body);
 
+/** Lock/unlock the queue + file (used by the sync worker). */
+void ra_queue_lock(void);
+void ra_queue_unlock(void);
+
 #endif /* RA_OFFLINE_QUEUE_H */

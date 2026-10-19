@@ -62,6 +62,26 @@ bool json_get_int(const char *json, const char *key, long *out)
     return true;
 }
 
+bool json_get_bool(const char *json, const char *key, bool *out)
+{
+    const char *v = find_key(json, key);
+    if (v == NULL || out == NULL)
+        return false;
+
+    while (*v == ' ' || *v == '\t' || *v == '\r' || *v == '\n')
+        v++;
+
+    if (strncmp(v, "true", 4) == 0) {
+        *out = true;
+        return true;
+    }
+    if (strncmp(v, "false", 5) == 0) {
+        *out = false;
+        return true;
+    }
+    return false;
+}
+
 void json_escape(const char *in, char *out, size_t outsz)
 {
     size_t o = 0;

@@ -17,6 +17,20 @@ const char *ra_base(void)
     return "sdmc:/switch/raoffline";
 }
 
+const char *ra_upstream_base(void)
+{
+    return "retroachievements.org";
+}
+
+bool ra_net_online(void)
+{
+    NifmInternetConnectionType type;
+    u32 strength;
+    NifmInternetConnectionStatus status;
+    Result rc = nifmGetInternetConnectionStatus(&type, &strength, &status);
+    return R_SUCCEEDED(rc) && status == NifmInternetConnectionStatus_Connected;
+}
+
 long long ra_now(void)
 {
     return (long long)(armTicksToNs(armGetSystemTick()) / 1000000000ULL);
@@ -28,6 +42,17 @@ const char *ra_base(void)
 {
     const char *e = getenv("RAOFFLINE_BASE");
     return (e != NULL && e[0] != '\0') ? e : "test/root";
+}
+
+const char *ra_upstream_base(void)
+{
+    const char *e = getenv("RAOFFLINE_UPSTREAM");
+    return (e != NULL && e[0] != '\0') ? e : "127.0.0.1:9090";
+}
+
+bool ra_net_online(void)
+{
+    return true;
 }
 
 long long ra_now(void)

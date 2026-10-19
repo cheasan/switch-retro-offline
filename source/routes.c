@@ -26,6 +26,8 @@
 #include "logger.h"
 #include "ra_cache.h"
 #include "ra_queue.h"
+#include "ra_sync.h"
+#include "ra_transport.h"
 #include "routes.h"
 #include "ra_util.h"
 
@@ -244,8 +246,20 @@ void route_dispatch(const http_request *req, http_response *resp)
     }
     if (strcmp(req->path, "/health") == 0) {
         resp_json(resp, 200,
-                  "{\"status\":\"ok\",\"phase\":3,\"cache_hashes\":%d}",
-                  ra_cache_count());
+                  "{\"status\":\"ok\",\"phase\":4,\"cache_hashes\":%d,"
+                  "\"queue_pending\":%ld,\"online\":%s}",
+                  ra_cache_count(), ra_sync_pending(),
+                  ra_net_online() ? "true" : "false");
+        return;
+    }
+    if (strcmp(req->path, "/sync-now") == 0) {
+        ra_sync_result res;
+        bool ok = ra_sync_run(ra_transport_default(), &res);
+        resp_json(resp, ok ? 200 : 500,
+                  "{\"Success\":%s,\"synced\":%d,\"failed\":%d,"
+                  "\"left\":%ld}",
+                  ok ? "true" : "false", res.synced, res.failed,
+                  ra_sync_pending());
         return;
     }
     if (strcmp(req->path, "/dorequest.php") == 0) {

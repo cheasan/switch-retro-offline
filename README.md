@@ -13,10 +13,22 @@ Plan source: `~/Downloads/switch_sysmodule_development_plan.md`
 | Phase | Goal | Status |
 |-------|------|--------|
 | 1 | Sysmodule boilerplate, heap, SD logging, paced loop | code done, compiles — hardware test pending |
-| 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | code done — desktop-tested with curl |
-| 3 | RetroArch API mocking, cache dir, unlock queue file | **code done — 20/20 desktop tests pass** — hardware test pending |
-| 4 | nifm network detection + background sync to retroachievements.org | pending |
+| 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | code done — desktop-tested |
+| 3 | RetroArch API mocking, cache dir, unlock queue file | code done — desktop-tested |
+| 4 | nifm network detection + background sync | **code done — 32/32 desktop tests pass** — hardware test pending |
 | 5 | Helper script to point RetroArch's cheevos URL at 127.0.0.1:8080 | pending |
+
+## Sync (Phase 4)
+
+- Switch: main loop watches `nifm`; on Wi-Fi rising edge (plus a retry
+  every 10 min while online) queued unlocks are replayed to
+  https://retroachievements.org over the console's own TLS (`ssl:`
+  service — no extra libraries).
+- Host tests: `test/fake_ra_server.py` stands in for the real server
+  (plain HTTP); the module syncs via `$RAOFFLINE_UPSTREAM`.
+- Safety: transport failures and server rejections KEEP the payload
+  queued (retry next pass); awards that arrive mid-sync are never
+  clobbered by the queue rewrite.
 
 ## Pre-caching games (online, from the laptop)
 

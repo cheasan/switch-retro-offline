@@ -17,6 +17,9 @@
 #include "http_server.h"
 #include "routes.h"
 #include "ra_cache.h"
+#include "ra_sync.h"
+#include "ra_transport.h"
+#include "ra_util.h"
 
 /** Size of the newlib heap backing all malloc()/stdio use. The plan
  *  allows ~4-8 MB for a sysmodule; start at 4 MB and only grow if a
@@ -37,6 +40,32 @@ u32 __nx_applet_type = AppletType_None;
 
 static Thread g_server_thread;
 static volatile bool g_running = true;
+static Result g_nifm_rc = 1; /* non-zero = "not initialised" */
+static bool g_was_online = false;
+static u32 g_last_sync_tick = 0;
+
+/** Try a sync pass if we just came online, or retry every 10 min while
+ *  online (catches previously-failed lines). Runs inline: the loop stalls
+ *  for the round-trips, which is fine - only heartbeats pause. */
+static void maybe_sync(bool online, u32 ticks)
+{
+    if (!online) {
+        g_was_online = false;
+        return;
+    }
+    bool rising = !g_was_online;
+    g_was_online = true;
+
+    bool due = rising || (ticks - g_last_sync_tick) > 6000; /* 10 min */
+    if (!due || ra_sync_pending() == 0)
+        return;
+
+    g_last_sync_tick = ticks;
+    logger_log("net: online (rising=%s), syncing %ld queued",
+               rising ? "yes" : "no", ra_sync_pending());
+    ra_sync_result res;
+    ra_sync_run(ra_transport_default(), &res);
+}
 
 /**
  * libnx hook: hand newlib a fixed static heap.
@@ -75,12 +104,15 @@ void __appInit(void)
     if (R_FAILED(rc))
         fatalThrow(rc);
 
-    /* Phase 4 adds nifmInitialize() here. */
+    /* Best effort: if nifm fails we simply never sync (log says so). */
+    g_nifm_rc = nifmInitialize(NifmServiceType_User);
 }
 
 /** libnx hook: release services in reverse order of acquisition. */
 void __appExit(void)
 {
+    if (R_SUCCEEDED(g_nifm_rc))
+        nifmExit();
     socketExit();
     smExit();
 }
@@ -106,9 +138,12 @@ int main(int argc, char *argv[])
     (void)argv;
 
     bool have_log = logger_init();
-    logger_log("ra-offline v0.2 (phase 2) starting");
+    logger_log("ra-offline v0.4 (phase 4) starting");
     if (!have_log)
         logger_log("WARNING: SD logging unavailable; continuing headless");
+    if (R_FAILED(g_nifm_rc))
+        logger_log("WARNING: nifm init failed (0x%x) - sync disabled",
+                   g_nifm_rc);
 
     logger_log("firmware: %d.%d.%d, heap budget: %u KB",
                hosversionGet() >> 16 & 0xff,
@@ -140,10 +175,14 @@ int main(int argc, char *argv[])
     while (g_running && appletMainLoop()) {
         svcSleepThread(LOOP_SLEEP_NS);
 
+        if (R_SUCCEEDED(g_nifm_rc) && ticks % 10 == 0) /* every second */
+            maybe_sync(ra_net_online(), ticks);
+
         if (++ticks % HEARTBEAT_EVERY_TICKS == 0) {
             struct mallinfo mi = mallinfo();
-            logger_log("heartbeat: uptime=%us heap_used=%lu",
-                       ticks / 10, (unsigned long)mi.uordblks);
+            logger_log("heartbeat: uptime=%us heap_used=%lu queue=%ld",
+                       ticks / 10, (unsigned long)mi.uordblks,
+                       ra_sync_pending());
         }
 
         /* Phase 3: queue maintenance hooks.

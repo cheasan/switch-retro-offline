@@ -19,4 +19,12 @@ void ra_path(char *out, size_t outsz, const char *fmt, ...)
  *  Only used for ordering/timestamps in the queue log. */
 long long ra_now(void);
 
+/** Sync upstream as "host[:port]". Switch: retroachievements.org (the
+ *  switch transport hardcodes TLS to it). Host: $RAOFFLINE_UPSTREAM. */
+const char *ra_upstream_base(void);
+
+/** Is the console online? Switch: nifm internet status. Host: always true
+ *  (sync is triggered explicitly in tests). */
+bool ra_net_online(void);
+
 #endif /* RA_OFFLINE_UTIL_H */
