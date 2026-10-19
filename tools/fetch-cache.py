@@ -27,6 +27,7 @@ import argparse
 import hashlib
 import json
 import os
+import struct
 import sys
 import urllib.parse
 import urllib.request
@@ -68,6 +69,58 @@ def save_hashes(path, hashes):
     lines += [f"{md5} {gid}" for md5, gid in sorted(hashes.items())]
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
+
+
+def strip_server_warnings(patch):
+    """RA injects fake 0-pt entries ('Warning: Unknown Emulator',
+    'Unsupported Game Version', ID >= 100000000) when it does not
+    recognise the fetching client. They must never reach the cache:
+    offline RetroArch would think the game is unsupported."""
+    pd = patch.get("PatchData")
+    if not isinstance(pd, dict):
+        return patch
+    ach = pd.get("Achievements")
+    if isinstance(ach, list):
+        pd["Achievements"] = [a for a in ach
+                              if int(a.get("ID", 0)) < 100000000]
+    return patch
+
+
+def rcheevos_hash_nds(data):
+    """rcheevos rc_hash_nintendo_ds (verified against rcheevos
+    src/hash/rc_hash_rom.c): MD5 of the 352-byte header + the ARM9
+    binary + the ARM7 binary + the 2560-byte icon/labels block."""
+    header = data[:512]
+    # SuperCard 512-byte header detected -> skip it
+    if (header[0] == 0x2E and header[1] == 0 and header[2] == 0 and
+            header[3] == 0xEA and header[0xB0] == 0x44 and
+            header[0xB1] == 0x46 and header[0xB2] == 0x96 and
+            header[0xB3] == 0):
+        data = data[512:]
+        header = data[:512]
+    u32 = lambda i: struct.unpack_from("<I", header, i)[0]
+    arm9_addr, arm9_size = u32(0x20), u32(0x2C)
+    arm7_addr, arm7_size = u32(0x30), u32(0x3C)
+    icon_addr = u32(0x68)
+
+    md5 = hashlib.md5()
+    md5.update(header[:0x160])
+    md5.update(data[arm9_addr:arm9_addr + arm9_size])
+    md5.update(data[arm7_addr:arm7_addr + arm7_size])
+    icon = data[icon_addr:icon_addr + 0xA00]
+    if len(icon) < 0xA00:
+        icon += bytearray(0xA00 - len(icon))
+    md5.update(icon)
+    return md5.hexdigest()
+
+
+def cheevos_hash(path):
+    """Best-effort rcheevos hash for a rom file. Falls back to the
+    plain file MD5 for formats we have not specialised."""
+    if path.lower().endswith(".nds"):
+        with open(path, "rb") as f:
+            return rcheevos_hash_nds(f.read())
+    return file_md5(path)
 
 
 def main():
@@ -114,7 +167,11 @@ def main():
         if not patch.get("Success"):
             print(f"  WARNING: patch for {gid} failed: {patch.get('Error')}")
             continue
+        before = len(patch.get("PatchData", {}).get("Achievements", []))
+        patch = strip_server_warnings(patch)
         n = len(patch.get("PatchData", {}).get("Achievements", []))
+        if n != before:
+            print(f"  stripped {before - n} server warning entr{'y' if before - n == 1 else 'ies'}")
         gdir = os.path.join(cache_dir, str(gid))
         os.makedirs(gdir, exist_ok=True)
         with open(os.path.join(gdir, "patch.json"), "w") as f:
@@ -138,9 +195,10 @@ def main():
             int(gid)
         except ValueError:
             sys.exit(f"bad --rom {spec!r}, expected FILE:GAMEID")
-        md5 = file_md5(path)
-        print(f"rom {os.path.basename(path)} md5 {md5} -> {gid}"
-              f"  (plain md5; NOT always rcheevos' hash - prefer --hash)")
+        md5 = cheevos_hash(path)
+        note = "" if path.lower().endswith(".nds") else \
+            "  (plain md5; NOT always rcheevos' hash - prefer --hash)"
+        print(f"rom {os.path.basename(path)} hash {md5} -> {gid}{note}")
         hashes[md5] = int(gid)
     save_hashes(os.path.join(cache_dir, "hashes.txt"), hashes)
 
