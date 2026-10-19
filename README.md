@@ -1,39 +1,115 @@
-# ra-offline — SwitchRetroOfflineProxy
+# ra-offline — RetroAchievements offline proxy for the Nintendo Switch
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An Atmosphere **sysmodule** (background system program) for the Nintendo Switch
-that acts as an **offline loopback server for RetroAchievements**: RetroArch
-talks to it as if it were retroachievements.org, unlock payloads get queued on
-the SD card while offline, and everything syncs to the real server whenever
-Wi-Fi comes back.
+**ra-offline** is a background system module (sysmodule) for Nintendo Switch
+[Atmosphere CFW](https://github.com/Atmosphere-NX/Atmosphere) that lets
+RetroArch keep earning RetroAchievements **without an internet connection**.
 
-Started from a one-page design plan and implemented phase-by-phase, with
-every phase verified by an automated desktop test suite before ever
-touching hardware.
+It runs a tiny web server on the Switch itself that pretends to be
+retroachievements.org. While you play offline, RetroArch doesn't notice any
+difference — achievements you unlock are saved to the SD card. The moment
+your Switch sees Wi-Fi again, ra-offline quietly uploads everything you
+earned to the real retroachievements.org. Nothing is faked in your final
+profile: every unlock is replayed to the real server.
 
-## Phase tracker
+## How it works
 
-| Phase | Goal | Status |
-|-------|------|--------|
-| 1 | Sysmodule boilerplate, heap, SD logging, paced loop | code done — hardware test pending |
-| 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | code done — desktop-tested |
-| 3 | RetroArch API mocking, cache dir, unlock queue file | code done — desktop-tested |
-| 4 | nifm network detection + background sync | code done — desktop-tested |
-| 5 | RetroArch config rewiring helper | **code done — 37/37 desktop tests pass** |
-
-## Pointing RetroArch at the proxy (Phase 5)
-
-RetroArch reads `cheevos_custom_host` from retroarch.cfg (verified against
-RetroArch master `cheevos/cheevos.c`) and uses it as `<host>/dorequest.php`.
-
-```sh
-bash tools/ra-config.sh /run/media/<you>/<sd>/retroarch/retroarch.cfg   # proxy on
-bash tools/ra-config.sh .../retroarch.cfg --restore                     # back to real server
-bash tools/ra-config.sh .../retroarch.cfg --show                        # inspect
+```
+offline:  RetroArch ──> ra-offline (127.0.0.1:8080) ──> SD card queue
+online:   ra-offline  ────────────────────────────────> retroachievements.org (TLS)
 ```
 
-Restart RetroArch afterwards - it reads the config once at boot.
+- RetroArch is pointed at the local proxy with a single config line
+  (`cheevos_custom_host`).
+- Game data (login, game identification, achievement definitions) is served
+  from a cache you pre-download on your computer.
+- Unlocks are appended to a queue file and acknowledged to RetroArch
+  immediately, so gameplay is never blocked.
+- When the Switch comes online, the queue is replayed to the real server
+  over the console's own TLS. Failed uploads stay queued and retry later.
+
+## Requirements
+
+- Nintendo Switch running Atmosphere custom firmware
+- RetroArch for Switch (standard build) with RetroAchievements enabled and
+  logged in
+- A [retroachievements.org](https://retroachievements.org) account
+- A computer, once, to pre-cache the games you want to play offline
+
+## Setup
+
+### 1 · Pre-cache your games (on your computer, online)
+
+```sh
+git clone https://github.com/cheasan/switch-retro-offline
+cd switch-retro-offline/tools
+
+# cache one game and link it to your ROM's achievement hash:
+python3 fetch-cache.py --user YOUR_RA_NAME --password YOUR_RA_PASSWORD \
+    --game 1234 --hash <md5-hash>:1234
+```
+
+The hash RetroArch sends is **not** always the plain MD5 of the ROM file.
+The reliable way to get it: launch the game in RetroArch once with
+achievements enabled (online), then copy it from RetroArch's log — the line
+looks like `cheevos hash: <md5>`.
+
+This produces an `ra-offline` folder (account + game cache) — by default at
+`sd/switch/raoffline/` inside the repo, ready to copy.
+
+### 2 · Install the sysmodule
+
+Copy to your SD card (merge with the existing `atmosphere` folder):
+
+```
+atmosphere/contents/4300000000000042/exefs.nsp     <- from this repo's Releases
+atmosphere/contents/4300000000000042/toolbox.json
+switch/raoffline/...                               <- from step 1
+```
+
+Reboot the console. Atmosphere starts the module at boot; it logs to
+`/switch/raoffline/sysmodule.log` if you want to confirm it's alive.
+
+### 3 · Point RetroArch at the proxy
+
+On the SD card, edit `retroarch/retroarch.cfg` (or use the helper script
+against a mounted SD):
+
+```sh
+bash tools/ra-config.sh /path/to/sd/retroarch/retroarch.cfg
+# adds: cheevos_custom_host = "http://127.0.0.1:8080"
+```
+
+Restart RetroArch (it reads the config once at boot). To go back to the
+real server any time: `ra-config.sh <cfg> --restore`.
+
+### 4 · Play offline
+
+Just play. Unlocks are queued to `/switch/raoffline/queue.json` instantly
+and RetroArch shows them as earned. Games that aren't in your cache simply
+show "no achievements" — add them later with `fetch-cache.py`.
+
+### 5 · Come back online
+
+Within seconds of the Switch connecting to Wi-Fi, queued unlocks are
+uploaded and the queue file empties. Check your profile on
+retroachievements.org. Uploads retry automatically, so a flaky connection
+never loses anything.
+
+## Building from source
+
+Install [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the
+`switch-dev` package group (devkitA64 + libnx), then:
+
+```sh
+make                    # builds ra-offline.nsp
+bash test/run-tests.sh  # 37-check desktop test suite (no Switch needed)
+```
+
+The HTTP server, protocol mocking, caching and sync logic all run and get
+tested on a normal Linux machine — only the thin service glue needs real
+hardware.
 
 ## Credits
 
@@ -51,112 +127,6 @@ Nintendo, or Team Neptune (Atmosphere). Use of a custom firmware sysmodule
 is at your own risk; be considerate and honest about how you unlock
 achievements — the queue syncs everything you earn, nothing more.
 
+## License
 
-## Sync (Phase 4)
-
-- Switch: main loop watches `nifm`; on Wi-Fi rising edge (plus a retry
-  every 10 min while online) queued unlocks are replayed to
-  https://retroachievements.org over the console's own TLS (`ssl:`
-  service — no extra libraries).
-- Host tests: `test/fake_ra_server.py` stands in for the real server
-  (plain HTTP); the module syncs via `$RAOFFLINE_UPSTREAM`.
-- Safety: transport failures and server rejections KEEP the payload
-  queued (retry next pass); awards that arrive mid-sync are never
-  clobbered by the queue rewrite.
-
-## Pre-caching games (online, from the laptop)
-
-```sh
-# preferred: hash taken from RetroArch's own log ("cheevos hash: <md5>")
-python3 tools/fetch-cache.py --user SAM --password secret \
-    --game 1234 --hash deadbeef...:1234
-
-# lays out sd/switch/raoffline/ (account.json, cache/hashes.txt,
-# cache/<id>/patch.json). Copy sd/switch/ to the SD card root.
-bash test/run-tests.sh    # automated regression suite (20 checks)
-```
-
-## Offline protocol map (Phase 3, /dorequest.php)
-
-| r= param | served from |
-|---|---|
-| `login` / `login2` | account.json (offline identity + score) |
-| `gameid&m=<md5>` | cache/hashes.txt lookup |
-| `patch&g=<id>` | verbatim cache/<id>/patch.json |
-| `startsession`, `ping`, `submitnewticket` | `{"Success":true}` |
-| `awardachievement&a=..&h=..` | appended to queue.json, ack'd |
-
-Unlock payloads are stored as JSON Lines with their RAW urlencoded
-query/body so Phase 4 can replay them byte-for-byte.
-
-## Desktop testing (no Switch required)
-
-The HTTP server + routes ship in two builds from the same source files:
-the sysmodule (devkitA64) and a Linux test binary (system gcc + ASan).
-
-```sh
-make host-test                 # build build-host/ra-test (AddressSanitizer)
-make host-run                  # run it, then in another terminal:
-curl http://127.0.0.1:8080/ping
-curl -X POST 'http://127.0.0.1:8080/dorequest.php?r=login'
-curl -X POST 'http://127.0.0.1:8080/dorequest.php' -d 'r=login&u=sam'
-```
-
-Verified behaviours (Phase 2): GET/POST routing, urlencoded query+body
-params with %XX and '+' decoding, 100-continue handling, 404/405/411
-(chunked rejected)/413 (body cap), per-connection close, receive timeout.
-
-## Build
-
-Needs devkitPro (devkitA64 + libnx + switch-tools):
-
-```sh
-export DEVKITPRO=/opt/devkitpro
-export DEVKITA64=/opt/devkitpro/devkitA64
-make          # produces ra-offline.nsp
-make clean    # when needed
-```
-
-## Install (SD card)
-
-```
-/atmosphere/contents/4300000000000042/exefs.nsp   <- build output ra-offline.nsp
-/atmosphere/contents/4300000000000042/toolbox.json
-```
-
-- `exefs.nsp` is the built module. Atmosphere's boot2 launches it at boot.
-- `toolbox.json` lets Tesla Toolbox / Uberhand see and restart the module.
-- The title ID `4300000000000042` lives in the custom-sysmodule range
-  (43xxxxxxxxxxxxxx); if it ever collides with another installed module,
-  change all three `program_id`/range fields in `ra-offline.json` and the
-  `tid` in `toolbox.json`.
-
-## Runtime artifacts (on the Switch SD)
-
-```
-/switch/raoffline/sysmodule.log    Phase 1 debug log (uptime, heartbeats, heap)
-/switch/raoffline/cache/           Phase 3: pre-cached game trigger JSONs
-/switch/raoffline/queue.json       Phase 3: unlock payloads waiting for sync
-```
-
-## Memory budget (why the code looks the way it does)
-
-Sysmodules run alongside Nintendo's own OS services, so the plan caps them at
-~4-8 MB. Choices made in Phase 1:
-
-- **Fixed static heap** (`HEAP_SIZE 0x400000` = 4 MB) handed to newlib in
-  `__libnx_initheap` — the cost is known at build time, no runtime
-  allocation games.
-- **No heavy frameworks**: no libcurl, no mongoose, no big JSON libs yet.
-  Phase 2/3 will use raw bsd sockets and a single-file JSON parser.
-- **Paced loop**: the main thread sleeps 100 ms between ticks; it must never
-  busy-spin on a core that games need.
-- `mallinfo()` is logged at boot and in every heartbeat so heap creep is
-  visible in the log from day one.
-
-## References
-
-- Build/npdm boilerplate follows the actively maintained
-  [sys-botbase](https://github.com/olliz0r/sys-botbase) sysmodule (same
-  toolchain generation, sockets in Phase 2 mirror its TCP server design).
-- libnx docs: https://switchbrew.org/wiki/Libnx
+[MIT](LICENSE)
