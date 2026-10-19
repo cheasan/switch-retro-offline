@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="180" alt="ra-offline logo"/>
+</p>
+
 # ra-offline — RetroAchievements offline proxy for the Nintendo Switch
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

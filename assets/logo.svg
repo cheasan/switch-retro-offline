@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- ra-offline logo: offline wifi + "ra" wordmark.
+       Pure vector, no font dependencies. Colors:
+       bg #171C26 · wifi/sync green #4CC878 · offline slash #D14D41 · ink #EEF1F6 -->
+  <defs>
+    <clipPath id="tile">
+      <rect x="0" y="0" width="256" height="256" rx="56"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect width="256" height="256" fill="#171C26"/>
+    <!-- subtle depth band -->
+    <rect width="256" height="128" fill="#1B2130"/>
+  </g>
+  <rect x="6" y="6" width="244" height="244" rx="52" fill="none"
+        stroke="#2A3140" stroke-width="4"/>
+
+  <!-- wifi arcs (the signal you CAN'T have) -->
+  <g fill="none" stroke="#4CC878" stroke-linecap="round">
+    <path d="M 72 96 A 79 79 0 0 1 184 96" stroke-width="14"/>
+    <path d="M 96 118 A 45 45 0 0 1 160 118" stroke-width="14"/>
+  </g>
+  <circle cx="128" cy="138" r="12" fill="#4CC878"/>
+
+  <!-- offline slash -->
+  <line x1="56" y1="180" x2="200" y2="44" stroke="#D14D41"
+        stroke-width="14" stroke-linecap="round"/>
+
+  <!-- "ra" wordmark, stroke lettering -->
+  <g fill="none" stroke="#EEF1F6" stroke-width="15" stroke-linecap="round">
+    <!-- r -->
+    <path d="M 78 214 L 78 158"/>
+    <path d="M 78 182 C 78 160 94 152 110 156"/>
+    <!-- a -->
+    <circle cx="150" cy="188" r="26"/>
+    <path d="M 176 162 L 176 214"/>
+  </g>
+</svg>
