@@ -1,12 +1,16 @@
 # ra-offline — SwitchRetroOfflineProxy
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 An Atmosphere **sysmodule** (background system program) for the Nintendo Switch
 that acts as an **offline loopback server for RetroAchievements**: RetroArch
 talks to it as if it were retroachievements.org, unlock payloads get queued on
 the SD card while offline, and everything syncs to the real server whenever
 Wi-Fi comes back.
 
-Plan source: `~/Downloads/switch_sysmodule_development_plan.md`
+Started from a one-page design plan and implemented phase-by-phase, with
+every phase verified by an automated desktop test suite before ever
+touching hardware.
 
 ## Phase tracker
 
@@ -30,6 +34,23 @@ bash tools/ra-config.sh .../retroarch.cfg --show                        # inspec
 ```
 
 Restart RetroArch afterwards - it reads the config once at boot.
+
+## Credits
+
+- **Design & direction:** [cheasan](https://github.com/cheasan) (project
+  concept, development plan, hardware testing).
+- **Implementation:** built end-to-end by an AI coding agent —
+  **GLM (Z.ai)** driving [OpenCode](https://opencode.ai) — from the plan
+  document through all five phases, including the desktop test suite.
+
+## Disclaimer
+
+This is an independent hobbyist tool. It is not affiliated with, endorsed
+by, or connected to the RetroAchievements.org team, the RetroArch team,
+Nintendo, or Team Neptune (Atmosphere). Use of a custom firmware sysmodule
+is at your own risk; be considerate and honest about how you unlock
+achievements — the queue syncs everything you earn, nothing more.
+
 
 ## Sync (Phase 4)
 
