@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include "http_server.h"
+#include "ra_cache.h"
 #include "routes.h"
 
 static volatile bool g_run = true;
@@ -26,6 +27,9 @@ int main(void)
 {
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
+
+    ra_cache_load();
+    printf("cache: %d hash entries loaded\n", ra_cache_count());
 
     if (http_server_start(8080) != 0) {
         fprintf(stderr, "failed to start server on 8080\n");

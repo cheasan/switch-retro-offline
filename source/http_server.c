@@ -243,9 +243,9 @@ static void handle_connection(int fd)
         content_len = (size_t)strtoul(cl, NULL, 10);
 
     /* RetroArch always sends Content-Length (payloads live in memory);
-     * chunked bodies are never expected on this loopback. */
-    if (find_header(buf, headers_len, "Transfer-Encoding") != NULL ||
-        (cl == NULL && req.method[0] == 'P')) {
+     * chunked bodies are never expected on this loopback. A POST without
+     * a Content-Length header is simply bodyless (all params in query). */
+    if (find_header(buf, headers_len, "Transfer-Encoding") != NULL) {
         http_response resp = { 411, "text/plain", NULL, 0 };
         send_response(fd, &resp);
         goto out_free;

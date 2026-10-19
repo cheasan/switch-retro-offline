@@ -16,6 +16,7 @@
 #include "logger.h"
 #include "http_server.h"
 #include "routes.h"
+#include "ra_cache.h"
 
 /** Size of the newlib heap backing all malloc()/stdio use. The plan
  *  allows ~4-8 MB for a sysmodule; start at 4 MB and only grow if a
@@ -115,6 +116,9 @@ int main(int argc, char *argv[])
                hosversionGet() & 0xff,
                HEAP_SIZE / 1024);
     log_heap_state();
+
+    ra_cache_load();
+    logger_log("cache: %d ROM hash entries loaded", ra_cache_count());
 
     if (http_server_start(SERVER_PORT) == 0) {
         Result rc = threadCreate(&g_server_thread, server_thread_main, NULL,

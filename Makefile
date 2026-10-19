@@ -14,7 +14,10 @@
 host-test:
 	@mkdir -p build-host
 	gcc -Wall -Wextra -O1 -g -fsanitize=address -Iinclude -o build-host/ra-test \
-		test/test_main.c test/host_logger.c source/http_server.c source/routes.c -lpthread
+		test/test_main.c test/host_logger.c \
+		source/http_server.c source/routes.c \
+		source/ra_util.c source/json_lite.c source/ra_cache.c source/ra_queue.c \
+		-lpthread
 
 host-run: host-test
 	./build-host/ra-test

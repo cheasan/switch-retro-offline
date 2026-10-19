@@ -13,10 +13,35 @@ Plan source: `~/Downloads/switch_sysmodule_development_plan.md`
 | Phase | Goal | Status |
 |-------|------|--------|
 | 1 | Sysmodule boilerplate, heap, SD logging, paced loop | code done, compiles — hardware test pending |
-| 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | **code done, desktop-tested with curl** — hardware test pending |
-| 3 | RetroArch API mocking, cache dir, unlock queue file | pending |
+| 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | code done — desktop-tested with curl |
+| 3 | RetroArch API mocking, cache dir, unlock queue file | **code done — 20/20 desktop tests pass** — hardware test pending |
 | 4 | nifm network detection + background sync to retroachievements.org | pending |
 | 5 | Helper script to point RetroArch's cheevos URL at 127.0.0.1:8080 | pending |
+
+## Pre-caching games (online, from the laptop)
+
+```sh
+# preferred: hash taken from RetroArch's own log ("cheevos hash: <md5>")
+python3 tools/fetch-cache.py --user SAM --password secret \
+    --game 1234 --hash deadbeef...:1234
+
+# lays out sd/switch/raoffline/ (account.json, cache/hashes.txt,
+# cache/<id>/patch.json). Copy sd/switch/ to the SD card root.
+bash test/run-tests.sh    # automated regression suite (20 checks)
+```
+
+## Offline protocol map (Phase 3, /dorequest.php)
+
+| r= param | served from |
+|---|---|
+| `login` / `login2` | account.json (offline identity + score) |
+| `gameid&m=<md5>` | cache/hashes.txt lookup |
+| `patch&g=<id>` | verbatim cache/<id>/patch.json |
+| `startsession`, `ping`, `submitnewticket` | `{"Success":true}` |
+| `awardachievement&a=..&h=..` | appended to queue.json, ack'd |
+
+Unlock payloads are stored as JSON Lines with their RAW urlencoded
+query/body so Phase 4 can replay them byte-for-byte.
 
 ## Desktop testing (no Switch required)
 
