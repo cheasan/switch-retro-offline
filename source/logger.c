@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <switch.h>
 #include "logger.h"
 
 static FILE *g_log = NULL;

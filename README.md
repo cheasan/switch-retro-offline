@@ -12,11 +12,28 @@ Plan source: `~/Downloads/switch_sysmodule_development_plan.md`
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| 1 | Sysmodule boilerplate, heap, SD logging, paced loop | **code done — needs first compile + Switch test** |
-| 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | pending |
+| 1 | Sysmodule boilerplate, heap, SD logging, paced loop | code done, compiles — hardware test pending |
+| 2 | HTTP loopback server on 127.0.0.1:8080 (bsd sockets + thread) | **code done, desktop-tested with curl** — hardware test pending |
 | 3 | RetroArch API mocking, cache dir, unlock queue file | pending |
 | 4 | nifm network detection + background sync to retroachievements.org | pending |
 | 5 | Helper script to point RetroArch's cheevos URL at 127.0.0.1:8080 | pending |
+
+## Desktop testing (no Switch required)
+
+The HTTP server + routes ship in two builds from the same source files:
+the sysmodule (devkitA64) and a Linux test binary (system gcc + ASan).
+
+```sh
+make host-test                 # build build-host/ra-test (AddressSanitizer)
+make host-run                  # run it, then in another terminal:
+curl http://127.0.0.1:8080/ping
+curl -X POST 'http://127.0.0.1:8080/dorequest.php?r=login'
+curl -X POST 'http://127.0.0.1:8080/dorequest.php' -d 'r=login&u=sam'
+```
+
+Verified behaviours (Phase 2): GET/POST routing, urlencoded query+body
+params with %XX and '+' decoding, 100-continue handling, 404/405/411
+(chunked rejected)/413 (body cap), per-connection close, receive timeout.
 
 ## Build
 

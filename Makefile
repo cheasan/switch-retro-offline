@@ -1,11 +1,34 @@
 .SUFFIXES:
 
+# Default goal must stay the Switch build even though host targets come first.
+.DEFAULT_GOAL := all
+
+#-----------------------------------------------------------------------
+# Desktop (host) test build - runs the same http_server.c/routes.c as the
+# sysmodule, on plain Linux. No devkitPro needed:
+#   make host-test   (build build-host/ra-test)
+#   make host-run    (build + run; then curl 127.0.0.1:8080)
+#-----------------------------------------------------------------------
+.PHONY: host-test host-run
+
+host-test:
+	@mkdir -p build-host
+	gcc -Wall -Wextra -O1 -g -fsanitize=address -Iinclude -o build-host/ra-test \
+		test/test_main.c test/host_logger.c source/http_server.c source/routes.c -lpthread
+
+host-run: host-test
+	./build-host/ra-test
+
+# devkitPro is only required for the Switch build goals (all/build/clean).
+SWITCH_GOALS := all $(BUILD)
+ifneq ($(filter $(SWITCH_GOALS),$(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)),)
 ifeq ($(strip $(DEVKITPRO)),)
 $(error "Please set DEVKITPRO in your environment. export DEVKITPRO=/opt/devkitpro")
 endif
+endif
 
 TOPDIR ?= $(CURDIR)
-include $(DEVKITPRO)/libnx/switch_rules
+-include $(DEVKITPRO)/libnx/switch_rules
 
 #-----------------------------------------------------------------------
 # ra-offline: offline RetroAchievements loopback proxy (Atmosphere sysmodule)

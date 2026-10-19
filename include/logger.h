@@ -9,7 +9,6 @@
 #define RA_OFFLINE_LOGGER_H
 
 #include <stdbool.h>
-#include <switch.h>
 
 #define RA_LOG_PATH "sdmc:/switch/raoffline/sysmodule.log"
 #define RA_DATA_DIR "sdmc:/switch/raoffline"

@@ -14,6 +14,8 @@
 #include <malloc.h>
 #include <switch.h>
 #include "logger.h"
+#include "http_server.h"
+#include "routes.h"
 
 /** Size of the newlib heap backing all malloc()/stdio use. The plan
  *  allows ~4-8 MB for a sysmodule; start at 4 MB and only grow if a
@@ -24,8 +26,16 @@
 #define LOOP_SLEEP_NS          100000000ULL   /* 100 ms */
 #define HEARTBEAT_EVERY_TICKS  300            /* ~30 s  */
 
+/** Loopback server (Phase 2). */
+#define SERVER_PORT            8080
+#define SERVER_THREAD_STACK    0x10000        /* 64 KB */
+#define SERVER_THREAD_PRIO     0x2d           /* just below main (42)  */
+
 /* We are a background system module, not an applet. */
 u32 __nx_applet_type = AppletType_None;
+
+static Thread g_server_thread;
+static volatile bool g_running = true;
 
 /**
  * libnx hook: hand newlib a fixed static heap.
@@ -60,14 +70,25 @@ void __appInit(void)
         }
     }
 
-    /* Phase 2 adds socketInitializeDefault() here (bsd service).
-     * Phase 4 adds nifmInitialize() here. */
+    rc = socketInitializeDefault(); /* bsd:u - loopback HTTP server */
+    if (R_FAILED(rc))
+        fatalThrow(rc);
+
+    /* Phase 4 adds nifmInitialize() here. */
 }
 
 /** libnx hook: release services in reverse order of acquisition. */
 void __appExit(void)
 {
+    socketExit();
     smExit();
+}
+
+static void server_thread_main(void *arg)
+{
+    (void)arg;
+    logger_log("http: worker starting");
+    http_server_serve_forever(&g_running, route_dispatch);
 }
 
 static void log_heap_state(void)
@@ -84,7 +105,7 @@ int main(int argc, char *argv[])
     (void)argv;
 
     bool have_log = logger_init();
-    logger_log("ra-offline v0.1 (phase 1) starting");
+    logger_log("ra-offline v0.2 (phase 2) starting");
     if (!have_log)
         logger_log("WARNING: SD logging unavailable; continuing headless");
 
@@ -95,8 +116,24 @@ int main(int argc, char *argv[])
                HEAP_SIZE / 1024);
     log_heap_state();
 
+    if (http_server_start(SERVER_PORT) == 0) {
+        Result rc = threadCreate(&g_server_thread, server_thread_main, NULL,
+                                 NULL, SERVER_THREAD_STACK, SERVER_THREAD_PRIO,
+                                 -2);
+        if (R_SUCCEEDED(rc)) {
+            rc = threadStart(&g_server_thread);
+            if (R_FAILED(rc))
+                logger_log("FATAL: threadStart failed 0x%x", rc);
+        } else {
+            logger_log("FATAL: threadCreate failed 0x%x", rc);
+        }
+    } else {
+        logger_log("FATAL: could not start loopback server on port %u",
+                   SERVER_PORT);
+    }
+
     u32 ticks = 0;
-    while (appletMainLoop()) {
+    while (g_running && appletMainLoop()) {
         svcSleepThread(LOOP_SLEEP_NS);
 
         if (++ticks % HEARTBEAT_EVERY_TICKS == 0) {
@@ -105,11 +142,15 @@ int main(int argc, char *argv[])
                        ticks / 10, (unsigned long)mi.uordblks);
         }
 
-        /* Phase 2: poll the HTTP server thread / accept loop.
+        /* Phase 3: queue maintenance hooks.
          * Phase 4: poll nifm and trigger the sync worker on Wi-Fi. */
     }
 
     logger_log("termination requested, shutting down");
+    g_running = false;
+    http_server_stop();
+    threadWaitForExit(&g_server_thread);
+    threadClose(&g_server_thread);
     log_heap_state();
     logger_exit();
     return 0;
