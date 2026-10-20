@@ -92,7 +92,8 @@ real server any time: `ra-config.sh <cfg> --restore`.
 
 Just play. Unlocks are queued to `/switch/raoffline/queue.json` instantly
 and RetroArch shows them as earned. Games that aren't in your cache simply
-show "no achievements" — add them later with `fetch-cache.py`.
+show "no achievements" — add them later with `fetch-cache.py`. Copy the new
+cache files to the SD card and play: no reboot needed.
 
 ### 5 · Come back online
 
