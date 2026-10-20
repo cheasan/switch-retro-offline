@@ -141,6 +141,9 @@ static void doreq_gameid(const http_request *req, http_response *resp)
 {
     char md5[64];
     if (!req_param(req, "m", md5, sizeof md5) || strlen(md5) != 32) {
+        logger_log("route: gameid MISSING/BAD hash (query='%s' body='%s')",
+                   req->query ? req->query : "",
+                   req->body ? req->body : "");
         resp_json(resp, 200,
                   "{\"Success\":false,\"Error\":\"missing hash\"}");
         return;
@@ -181,6 +184,45 @@ static void doreq_patch(const http_request *req, http_response *resp)
     }
 }
 
+static void doreq_sets(const http_request *req, http_response *resp)
+{
+    /* RetroArch 1.22 (rcheevos v11) calls this with the ROM hash
+     * (m=<md5>) BEFORE any gameid lookup; older tools may pass g=.
+     * Accept both. */
+    char g[24], md5[64];
+    long gameid = -1;
+    if (req_param(req, "g", g, sizeof g))
+        gameid = strtol(g, NULL, 10);
+    else if (req_param(req, "m", md5, sizeof md5) && strlen(md5) == 32) {
+        if (ra_cache_count() == 0)
+            ra_cache_load();
+        ra_cache_lookup_gameid(md5, &gameid);
+    }
+
+    if (gameid <= 0) {
+        logger_log("route: achievementsets unmatched (query='%s' body='%s')",
+                   req->query ? req->query : "",
+                   req->body ? req->body : "");
+        resp_json(resp, 200,
+                  "{\"Success\":false,\"Error\":\"not cached offline\"}");
+        return;
+    }
+    size_t len;
+    char *sets = ra_cache_read_sets(gameid, &len);
+    if (sets != NULL) {
+        logger_log("route: achievementsets %ld (%zu bytes, served verbatim)",
+                   gameid, len);
+        resp->status = 200;
+        resp->content_type = "application/json";
+        resp->body = sets;
+        resp->body_len = len;
+    } else {
+        logger_log("route: achievementsets %ld not cached", gameid);
+        resp_json(resp, 200,
+                  "{\"Success\":false,\"Error\":\"not cached offline\"}");
+    }
+}
+
 static void doreq_award(const http_request *req, http_response *resp)
 {
     char a[24], h[8];
@@ -208,6 +250,24 @@ static void doreq_award(const http_request *req, http_response *resp)
     }
 }
 
+/** Leaderboard entries queue for replay like unlocks; the ack needs a
+ *  Response object or RetroArch shows a submit error (found on host). */
+static void doreq_lboard(const http_request *req, http_response *resp)
+{
+    if (!ra_queue_append(req->query, req->body)) {
+        logger_log("route: submitlbentry QUEUE WRITE FAILED");
+        resp_json(resp, 200, "{\"Success\":false,\"Error\":\"queue\"}");
+        return;
+    }
+    char lb[24];
+    if (!req_param(req, "i", lb, sizeof lb))
+        strcpy(lb, "0");
+    logger_log("route: submitlbentry %s queued", lb);
+    resp_json(resp, 200,
+              "{\"Success\":true,\"Response\":{\"Score\":0,"
+              "\"BestScore\":0,\"NewRank\":1,\"BestRank\":1}}");
+}
+
 static void handle_dorequest(const http_request *req, http_response *resp)
 {
     char r[32];
@@ -222,8 +282,12 @@ static void handle_dorequest(const http_request *req, http_response *resp)
         doreq_gameid(req, resp);
     else if (strcmp(r, "patch") == 0)
         doreq_patch(req, resp);
+    else if (strcmp(r, "achievementsets") == 0)
+        doreq_sets(req, resp);
     else if (strcmp(r, "awardachievement") == 0)
         doreq_award(req, resp);
+    else if (strcmp(r, "submitlbentry") == 0)
+        doreq_lboard(req, resp);
     else {
         /* startsession, ping, submitnewticket, anything unexpected:
          * harmless success keeps RetroArch happy offline. */

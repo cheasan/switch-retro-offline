@@ -117,9 +117,19 @@ def rcheevos_hash_nds(data):
 def cheevos_hash(path):
     """Best-effort rcheevos hash for a rom file. Falls back to the
     plain file MD5 for formats we have not specialised."""
+    with open(path, "rb") as f:
+        head = f.read(16)
+        data = None
+    if head[:4] in (b"NES\x1a", b"FDS\x1a"):
+        if data is None:
+            with open(path, "rb") as f:
+                data = f.read()
+        return hashlib.md5(data[16:]).hexdigest()   # rc_hash_nes
     if path.lower().endswith(".nds"):
-        with open(path, "rb") as f:
-            return rcheevos_hash_nds(f.read())
+        if data is None:
+            with open(path, "rb") as f:
+                data = f.read()
+        return rcheevos_hash_nds(data)
     return file_md5(path)
 
 
@@ -178,6 +188,30 @@ def main():
             json.dump(patch, f)
         print(f"  ok: {n} achievements -> {gdir}/patch.json")
 
+        # RetroArch 1.22+ (rcheevos v11) uses r=achievementsets instead
+        # of r=patch; cache the verbatim response for it too.
+        sets = doreq({"r": "achievementsets", "u": args.user,
+                      "t": token, "g": gid})
+        if sets.get("Success"):
+            stripped = 0
+            for s in sets.get("Sets", []):
+                ach = s.get("Achievements", [])
+                clean = [a for a in ach if int(a.get("ID", 0)) < 100000000]
+                stripped += len(ach) - len(clean)
+                s["Achievements"] = clean
+            with open(os.path.join(gdir, "sets.json"), "w") as f:
+                json.dump(sets, f)
+            nsets = sum(len(s.get("Achievements", []))
+                        for s in sets.get("Sets", []))
+            msg = f"  ok: sets.json ({nsets} achievements, " \
+                  f"{len(sets.get('Sets', []))} set(s))"
+            if stripped:
+                msg += f", stripped {stripped} server warning entries"
+            print(msg)
+        else:
+            print("  WARNING: achievementsets fetch failed "
+                  "(RetroArch 1.22+ will not load this game offline)")
+
     # 3. hash mappings
     hashes = load_hashes(os.path.join(cache_dir, "hashes.txt"))
     for spec in args.hash:
@@ -196,9 +230,7 @@ def main():
         except ValueError:
             sys.exit(f"bad --rom {spec!r}, expected FILE:GAMEID")
         md5 = cheevos_hash(path)
-        note = "" if path.lower().endswith(".nds") else \
-            "  (plain md5; NOT always rcheevos' hash - prefer --hash)"
-        print(f"rom {os.path.basename(path)} hash {md5} -> {gid}{note}")
+        print(f"rom {os.path.basename(path)} hash {md5} -> {gid}")
         hashes[md5] = int(gid)
     save_hashes(os.path.join(cache_dir, "hashes.txt"), hashes)
 

@@ -29,6 +29,14 @@ bool ra_cache_lookup_gameid(const char *md5, long *gameid);
  *  terminated) and sets *len, or NULL when absent/oversized. */
 char *ra_cache_read_patch(long gameid, size_t *len);
 
+/** Read cache/<gameid>/sets.json verbatim (r=achievementsets payload
+ *  for RetroArch 1.22+ / rcheevos v11). malloc'd, NUL-terminated;
+ *  caller frees. NULL if not cached. */
+char *ra_cache_read_sets(long gameid, size_t *len);
+
+/** Shared reader used by the two above. */
+char *ra_cache_read_file(const char *path_fmt, long gameid, size_t *len);
+
 /** Offline identity from account.json (defaults when missing). */
 bool ra_cache_read_account(char *user, size_t usersz,
                            char *token, size_t tokensz,

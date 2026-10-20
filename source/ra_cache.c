@@ -91,8 +91,18 @@ bool ra_cache_lookup_gameid(const char *md5, long *gameid)
 
 char *ra_cache_read_patch(long gameid, size_t *len)
 {
+    return ra_cache_read_file("cache/%ld/patch.json", gameid, len);
+}
+
+char *ra_cache_read_sets(long gameid, size_t *len)
+{
+    return ra_cache_read_file("cache/%ld/sets.json", gameid, len);
+}
+
+char *ra_cache_read_file(const char *fmt, long gameid, size_t *len)
+{
     char path[600];
-    ra_path(path, sizeof path, "cache/%ld/patch.json", gameid);
+    ra_path(path, sizeof path, fmt, gameid);
 
     FILE *f = fopen(path, "rb");
     if (f == NULL)

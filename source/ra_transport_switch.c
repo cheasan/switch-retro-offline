@@ -102,9 +102,13 @@ static int post(void *ctx, const char *query_extra, const char *body,
 
     char head[512];
     size_t body_len = body ? strlen(body) : 0;
+    /* The real server rejects achievement/lboard submissions from
+     * unknown clients (403 unsupported_client, found in hardware
+     * testing) - present ourselves exactly like RetroArch does. */
     int hn = snprintf(head, sizeof head,
                       "POST %s HTTP/1.1\r\n"
                       "Host: %s\r\n"
+                      "User-Agent: RetroArch/1.22.2\r\n"
                       "Content-Type: application/x-www-form-urlencoded\r\n"
                       "Content-Length: %zu\r\n"
                       "Connection: close\r\n"

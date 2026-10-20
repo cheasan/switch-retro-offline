@@ -10,6 +10,11 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include <switch.h>
 
 #define RA_TID 0x4300000000000042ULL
@@ -117,6 +122,46 @@ int main(int argc, char *argv[])
             }
             fsFsClose(&sd);
         }
+    }
+
+    /* THE core product assumption, finally tested directly: can a
+     * different process (this NRO = application context, like
+     * RetroArch) reach the sysmodule's loopback server? */
+    {
+        printf("\nloopback test: connecting to 127.0.0.1:8080 ...\n");
+        Result rcs = socketInitializeDefault();
+        printf("socketInitializeDefault: 0x%x\n", rcs);
+        if (f) fprintf(f, "socketInitializeDefault rc=0x%x\n", rcs);
+        int s = socket(AF_INET, SOCK_STREAM, 0);
+        if (s < 0) {
+            printf("  socket() failed errno=%d\n", errno);
+            if (f) fprintf(f, "loopback socket() errno=%d\n", errno);
+        } else {
+            struct sockaddr_in addr;
+            memset(&addr, 0, sizeof addr);
+            addr.sin_family      = AF_INET;
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            addr.sin_port        = htons(8080);
+            if (connect(s, (struct sockaddr *)&addr, sizeof addr) < 0) {
+                printf("  connect FAILED errno=%d\n", errno);
+                if (f) fprintf(f, "loopback connect errno=%d\n", errno);
+            } else {
+                const char *req = "GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n";
+                send(s, req, strlen(req), 0);
+                char buf[512];
+                ssize_t n = recv(s, buf, sizeof(buf) - 1, 0);
+                if (n > 0) {
+                    buf[n] = '\0';
+                    printf("  CONNECTED! response:\n%.400s\n", buf);
+                    if (f) fprintf(f, "loopback OK:\n%.400s\n", buf);
+                } else {
+                    printf("  connected but no response (recv=%d)\n", (int)n);
+                    if (f) fprintf(f, "loopback recv=%d\n", (int)n);
+                }
+            }
+            close(s);
+        }
+        socketExit();
     }
 
     u64 pid = 0;
