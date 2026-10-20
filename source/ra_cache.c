@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "json_lite.h"
+#include "logger.h"
 #include "ra_cache.h"
 #include "ra_util.h"
 
@@ -31,20 +32,18 @@ static void lower(char *s)
         *s = (char)tolower((unsigned char)*s);
 }
 
-bool ra_cache_load(void)
+/** (Re)read cache/hashes.txt into g_hashes. Keeps the old table when the
+ *  file cannot be opened, so a busy SD never empties a working cache. */
+static void read_hashes(void)
 {
-    static bool g_tried;
-    if (g_tried)
-        return g_count > 0;
-    g_tried = true;
-
     char path[600];
     ra_path(path, sizeof path, "cache/hashes.txt");
 
     FILE *f = fopen(path, "r");
     if (f == NULL)
-        return false;
+        return;
 
+    g_count = 0;
     char line[160];
     while (g_count < MAX_HASHES && fgets(line, sizeof line, f) != NULL) {
         char md5[64];
@@ -62,7 +61,27 @@ bool ra_cache_load(void)
         }
     }
     fclose(f);
+}
+
+bool ra_cache_load(void)
+{
+    static bool g_tried;
+    if (!g_tried) {
+        g_tried = true;
+        read_hashes();
+    }
     return g_count > 0;
+}
+
+static bool find_gameid(const char *norm, long *gameid)
+{
+    for (int i = 0; i < g_count; i++) {
+        if (strcmp(g_hashes[i].md5, norm) == 0) {
+            *gameid = g_hashes[i].gameid;
+            return true;
+        }
+    }
+    return false;
 }
 
 int ra_cache_count(void)
@@ -80,13 +99,14 @@ bool ra_cache_lookup_gameid(const char *md5, long *gameid)
     norm[sizeof norm - 1] = '\0';
     lower(norm);
 
-    for (int i = 0; i < g_count; i++) {
-        if (strcmp(g_hashes[i].md5, norm) == 0) {
-            *gameid = g_hashes[i].gameid;
-            return true;
-        }
-    }
-    return false;
+    if (find_gameid(norm, gameid))
+        return true;
+
+    /* Miss: games cached after boot (fetch-cache.py + copy) only show up
+     * in hashes.txt. Re-read it once so they work without a reboot. */
+    read_hashes();
+    logger_log("cache: reloaded hashes.txt on miss (%d entries)", g_count);
+    return find_gameid(norm, gameid);
 }
 
 char *ra_cache_read_patch(long gameid, size_t *len)

@@ -22,7 +22,9 @@ bool ra_cache_load(void);
 /** Number of loaded ROM-hash entries. */
 int ra_cache_count(void);
 
-/** Look up the game ID for a 32-hex-char RetroArch cheevos hash. */
+/** Look up the game ID for a 32-hex-char RetroArch cheevos hash. On a
+ *  miss, re-reads cache/hashes.txt once, so games cached after boot work
+ *  without a reboot. */
 bool ra_cache_lookup_gameid(const char *md5, long *gameid);
 
 /** Read cache/<gameid>/patch.json. Returns malloc'd buffer (NUL-

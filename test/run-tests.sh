@@ -45,6 +45,12 @@ expect "known hash -> 1234" '"GameID":1234'     "$(curl -s -X POST "$BASE/dorequ
 expect "uppercase hash ok"  '"GameID":5678'     "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=gameid&m=00112233445566778899AABBCCDDEEFF')"
 expect "unknown hash"       '"Success":false'   "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=gameid&m=00000000000000000000000000000000')"
 
+# a game cached after boot works without a restart (reload on miss)
+cp test/root/cache/hashes.txt /tmp/opencode/hashes.txt.bak
+echo "abcdefabcdefabcdefabcdefabcdef12 1234" >> test/root/cache/hashes.txt
+expect "hash added at runtime" '"GameID":1234' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=gameid&m=abcdefabcdefabcdefabcdefabcdef12')"
+cp /tmp/opencode/hashes.txt.bak test/root/cache/hashes.txt
+
 # Phase 3: patch serving
 expect "patch verbatim title" '"ra-offline Test Game"' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=patch&g=1234')"
 expect "patch has achievement 111" '"Test Achievement"' "$(curl -s -X POST "$BASE/dorequest.php?r=patch&g=1234")"
