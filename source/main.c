@@ -45,6 +45,7 @@ u32 __nx_applet_type = AppletType_None;
 static Thread g_server_thread;
 static volatile bool g_running = true;
 static Result g_nifm_rc = 1; /* non-zero = "not initialised" */
+static Result g_ssl_rc = 1;  /* non-zero = "not initialised" */
 static bool g_was_online = false;
 static u32 g_last_sync_tick = 0;
 
@@ -152,11 +153,21 @@ void __appInit(void)
     g_nifm_rc = nifmInitialize(NifmServiceType_User);
     logger_log("init: stage 6 nifm rc=0x%x%s",
                g_nifm_rc, R_SUCCEEDED(g_nifm_rc) ? " (ok)" : " (sync off)");
+
+    /* Sync talks TLS through the console's ssl service. Without this,
+     * sslCreateContext fails with 0x1159 (libnx NotInitialized) - found
+     * on hardware. One session: sync sends one request at a time. */
+    logger_log("init: stage 7 -> sslInitialize(1)");
+    g_ssl_rc = sslInitialize(1);
+    logger_log("init: stage 8 ssl rc=0x%x%s",
+               g_ssl_rc, R_SUCCEEDED(g_ssl_rc) ? " (ok)" : " (sync off)");
 }
 
 /** libnx hook: release services in reverse order of acquisition. */
 void __appExit(void)
 {
+    if (R_SUCCEEDED(g_ssl_rc))
+        sslExit();
     if (R_SUCCEEDED(g_nifm_rc))
         nifmExit();
     socketExit();
@@ -186,9 +197,9 @@ int main(int argc, char *argv[])
 
     bool have_log = logger_init();
 #ifdef RA_NRO
-    logger_log("ra-offline v0.4.2 (NRO build) starting");
+    logger_log("ra-offline v0.4.3 (NRO build) starting");
 #else
-    logger_log("ra-offline v0.4.2 (sysmodule) starting");
+    logger_log("ra-offline v0.4.3 (sysmodule) starting");
 #endif
     if (!have_log)
         logger_log("WARNING: SD logging unavailable; continuing headless");

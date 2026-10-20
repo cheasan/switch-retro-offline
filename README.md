@@ -99,7 +99,25 @@ show "no achievements" — add them later with `fetch-cache.py`.
 Within seconds of the Switch connecting to Wi-Fi, queued unlocks are
 uploaded and the queue file empties. Check your profile on
 retroachievements.org. Uploads retry automatically, so a flaky connection
-never loses anything.
+never loses anything. Leaderboard times sync the same way.
+
+## Troubleshooting
+
+Read `/switch/raoffline/sysmodule.log` first. Each failed upload names the
+step that failed, or quotes the server's error text.
+
+- **"Password is required" or "Missing RetroAchievements account
+  information":** RetroArch has no saved password. Recent RetroArch builds
+  encrypt it in `retroarch/retroarch-keychain.cfg` with the key in
+  `retroarch/retroarch-keychain.key`. Do not delete the key file: RetroArch
+  then cannot read the saved password again. Set the proxy first, then log
+  in again from RetroArch's Achievements settings.
+- **Black screen when a game starts:** the RetroArch menu and its cores
+  come from different releases. Keep the menu (`switch/retroarch_switch.nro`)
+  and the cores in `retroarch/cores/` from the same download.
+- **"Login failed" with nothing in `sysmodule.log`:** RetroArch did not
+  reach the proxy. Check that `cheevos_custom_host` is
+  `"http://127.0.0.1:8080"` in the `retroarch.cfg` that RetroArch loads.
 
 ## Building from source
 

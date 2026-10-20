@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -22,21 +23,32 @@
 
 #include <switch.h>
 
+#include "logger.h"
 #include "ra_transport.h"
 
 #define RA_HOST "retroachievements.org"
 #define RA_PORT 443
 #define IO_TIMEOUT_S 15
 
+/* Every failure path returns -1; log which step it was. */
+static void step_failed(const char *step, Result rc)
+{
+    logger_log("transport: %s failed (rc=0x%x)", step, (unsigned)rc);
+}
+
 static int tcp_connect(void)
 {
     struct hostent *he = gethostbyname(RA_HOST);
-    if (he == NULL || he->h_addr_list[0] == NULL)
+    if (he == NULL || he->h_addr_list[0] == NULL) {
+        logger_log("transport: dns lookup failed for %s", RA_HOST);
         return -1;
+    }
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0)
+    if (fd < 0) {
+        logger_log("transport: socket failed errno=%d", errno);
         return -1;
+    }
 
     struct timeval tv = { .tv_sec = IO_TIMEOUT_S, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
@@ -49,6 +61,7 @@ static int tcp_connect(void)
     memcpy(&addr.sin_addr, he->h_addr_list[0], sizeof addr.sin_addr);
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof addr) < 0) {
+        logger_log("transport: connect failed errno=%d", errno);
         close(fd);
         return -1;
     }
@@ -67,31 +80,45 @@ static int post(void *ctx, const char *query_extra, const char *body,
         return -1;
 
     int status = -1;
+    int sfd = -1; /* ssl's own copy of the socket, closed before the conn */
     SslContext ctxs;
     SslConnection conn;
     bool conn_ok = false;
 
     Result rc = sslCreateContext(&ctxs, SslVersion_Auto);
-    if (R_FAILED(rc))
+    if (R_FAILED(rc)) {
+        step_failed("sslCreateContext", rc);
         goto out_close;
+    }
 
     rc = sslContextCreateConnection(&ctxs, &conn);
-    if (R_FAILED(rc))
+    if (R_FAILED(rc)) {
+        step_failed("sslContextCreateConnection", rc);
         goto out_ctx;
+    }
 
     rc = sslConnectionSetHostName(&conn, RA_HOST,
                                   (u32)strlen(RA_HOST) + 1);
-    if (R_FAILED(rc))
+    if (R_FAILED(rc)) {
+        step_failed("sslConnectionSetHostName", rc);
         goto out_conn;
+    }
 
-    int sfd;
-    rc = sslConnectionSetSocketDescriptor(&conn, fd, &sfd);
-    if (R_FAILED(rc))
+    /* The raw ssl call wants the bsd socket id, not newlib's fd; passing
+     * fd straight failed with 0xe87b on hardware. The wrapper converts it.
+     * ENOENT only means ssl returned no copy of the socket - not an error. */
+    sfd = socketSslConnectionSetSocketDescriptor(&conn, fd);
+    if (sfd < 0 && errno != ENOENT) {
+        step_failed("socketSslConnectionSetSocketDescriptor",
+                    socketGetLastResult());
         goto out_conn;
+    }
 
     rc = sslConnectionDoHandshake(&conn, NULL, NULL, NULL, 0);
-    if (R_FAILED(rc))
+    if (R_FAILED(rc)) {
+        step_failed("sslConnectionDoHandshake", rc);
         goto out_conn;
+    }
     conn_ok = true;
 
     /* Build the request while TLS is up. */
@@ -128,8 +155,10 @@ static int post(void *ctx, const char *query_extra, const char *body,
             }
             u32 written;
             rc = sslConnectionWrite(&conn, req, (u32)req_len, &written);
-            if (R_FAILED(rc))
+            if (R_FAILED(rc)) {
+                step_failed("sslConnectionWrite", rc);
                 goto out_conn;
+            }
         } else {
             goto out_conn; /* request too large; shouldn't happen */
         }
@@ -148,8 +177,10 @@ static int post(void *ctx, const char *query_extra, const char *body,
         got += n;
         raw[got] = '\0';
     }
-    if (got == 0)
+    if (got == 0) {
+        step_failed("sslConnectionRead (no data)", rc);
         goto out_conn;
+    }
 
     if (strncmp(raw, "HTTP/", 5) == 0) {
         const char *sp = strchr(raw, ' ');
@@ -161,6 +192,8 @@ static int post(void *ctx, const char *query_extra, const char *body,
         snprintf(resp, respsz, "%s", b + 4);
 
 out_conn:
+    if (sfd >= 0)
+        close(sfd);
     sslConnectionClose(&conn);
 out_ctx:
     sslContextClose(&ctxs);

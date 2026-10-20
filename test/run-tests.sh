@@ -51,8 +51,8 @@ expect "patch has achievement 111" '"Test Achievement"' "$(curl -s -X POST "$BAS
 expect "patch missing"     '"not cached offline"' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=patch&g=9999')"
 
 # Phase 3: unlock queueing
-expect "award ack"         '"AwardedAchievementID":111' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=awardachievement&u=sam&t=testtoken123&a=111&h=1&m=abc123&v=cafe')"
-expect "award ack 2"       '"AwardedAchievementID":112' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=awardachievement&u=sam&t=testtoken123&a=112&h=1&m=def456&v=beef')"
+expect "award ack"         '"AchievementID":111' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=awardachievement&u=sam&t=testtoken123&a=111&h=1&m=abc123&v=cafe')"
+expect "award ack 2"       '"AchievementID":112' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=awardachievement&u=sam&t=testtoken123&a=112&h=1&m=def456&v=beef')"
 
 # queue file must contain both, verbatim params
 Q=$(cat test/root/queue.json 2>/dev/null)
@@ -62,8 +62,15 @@ expect "queue is JSONL"    'awardachievement&u=sam&t=testtoken123' "$Q"
 LINES=$(grep -c . test/root/queue.json 2>/dev/null || echo 0)
 expect "queue has 2 lines" "2" "$LINES"
 
+# leaderboard ack: rcheevos needs RankInfo + TopEntries, echoed score
+LB=$(curl -s -X POST "$BASE/dorequest.php" -d 'r=submitlbentry&u=sam&t=testtoken123&i=171647&s=28268&m=abc123&v=cafe')
+expect "lboard score echo"  '"Score":28268'                        "$LB"
+expect "lboard rank info"   '"RankInfo":{"Rank":1,"NumEntries":"1"}' "$LB"
+expect "lboard top entries" '"TopEntries":[]'                      "$LB"
+expect "queue has lboard"   'r=submitlbentry&u=sam'                "$(cat test/root/queue.json 2>/dev/null)"
+
 # generic endpoints
-expect "startsession"   '"Success":true' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=startsession&g=1234')"
+expect "startsession"  '"Success":true' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=startsession&g=1234')"
 expect "ping"           '"Success":true' "$(curl -s -X POST "$BASE/dorequest.php" -d 'r=ping&g=1234')"
 
 # ---------------------------------------------------------------------
@@ -95,8 +102,8 @@ RAOFFLINE_UPSTREAM=127.0.0.1:9090 python3 test/fake_ra_server.py &
 FAKE_PID=$!
 sleep 0.5
 
-# drain the two unlocks queued by the phase-3 section above
-expect "sync: drain phase-3 queue" '"synced":2' "$(curl -s "$BASE/sync-now")"
+# drain the two unlocks + one leaderboard entry queued above
+expect "sync: drain phase-3 queue" '"synced":3' "$(curl -s "$BASE/sync-now")"
 
 # queue two unlocks while "offline", then tell the module to sync now
 curl -s -X POST "$BASE/dorequest.php" -d 'r=awardachievement&u=sam&t=testtoken123&a=111&h=1&m=m111&v=v111' >/dev/null
@@ -121,6 +128,15 @@ expect "sync: server rejects -> failed" '"failed":1' "$(curl -s "$BASE/sync-now"
 expect "queue still has a=113"          'a=113&h=1'  "$(cat test/root/queue.json 2>/dev/null)"
 expect "sync: retry succeeds"           '"synced":1' "$(curl -s "$BASE/sync-now")"
 expect_eq "queue finally empty" "ok" "$(test ! -s test/root/queue.json && echo ok)"
+kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
+
+# server says "User already has": counted as synced, not retried forever
+FAKE_ALREADY=1 RAOFFLINE_UPSTREAM=127.0.0.1:9090 python3 test/fake_ra_server.py &
+FAKE_PID=$!
+sleep 0.5
+curl -s -X POST "$BASE/dorequest.php" -d 'r=awardachievement&u=sam&t=testtoken123&a=114&h=1&m=m114&v=v114' >/dev/null
+expect "sync: already-has -> synced" '"synced":1' "$(curl -s "$BASE/sync-now")"
+expect_eq "queue empty after already-has" "ok" "$(test ! -s test/root/queue.json && echo ok)"
 kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
 
 pkill -x ra-test

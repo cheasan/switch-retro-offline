@@ -135,17 +135,26 @@ bool ra_sync_run(const ra_transport *t, ra_sync_result *out)
                              respbuf, sizeof respbuf);
 
         bool ok = false;
-        if (status == 200)
+        char err[128] = "";
+        if (status == 200) {
             json_get_bool(respbuf, "Success", &ok);
+            json_get_string(respbuf, "Error", err, sizeof err);
+        }
 
-        if (ok) {
+        /* "User already has ..." = the unlock is on the server already.
+         * rcheevos counts it as success too; retrying would loop forever. */
+        if (!ok && strncmp(err, "User already has", 16) == 0) {
+            synced[idx] = true;
+            res.synced++;
+            logger_log("sync: ok, already on server (%s)", send_body);
+        } else if (ok) {
             synced[idx] = true;
             res.synced++;
             logger_log("sync: ok (%s)", send_body);
         } else {
             res.failed++;
-            logger_log("sync: FAILED status=%d, keeping (%s)",
-                       status, send_body);
+            logger_log("sync: FAILED status=%d error='%s', keeping (%s)",
+                       status, err, send_body);
         }
     }
     free(snapshot);

@@ -240,18 +240,22 @@ static void doreq_award(const http_request *req, http_response *resp)
         long score, softcore;
         ra_cache_read_account(user, sizeof user, token, sizeof token,
                               &score, &softcore);
+        /* rcheevos reads "AchievementID"; any other name parses as 0 and
+         * logs "Awarded achievement 0 instead of ..." (found on Switch). */
         resp_json(resp, 200,
-                  "{\"Success\":true,\"AwardedAchievementID\":%s,"
-                  "\"AchievementsRemaining\":0,\"Score\":%ld}",
-                  a, score);
+                  "{\"Success\":true,\"AchievementID\":%s,"
+                  "\"AchievementsRemaining\":0,\"Score\":%ld,"
+                  "\"SoftcoreScore\":%ld}",
+                  a, score, softcore);
     } else {
         logger_log("route: award %s QUEUE WRITE FAILED", a);
         resp_json(resp, 200, "{\"Success\":false,\"Error\":\"queue\"}");
     }
 }
 
-/** Leaderboard entries queue for replay like unlocks; the ack needs a
- *  Response object or RetroArch shows a submit error (found on host). */
+/** Leaderboard entries queue for replay like unlocks. rcheevos requires
+ *  Response.Score, BestScore, RankInfo{Rank,NumEntries} and TopEntries,
+ *  or RetroArch shows a submit error (found on host and on Switch). */
 static void doreq_lboard(const http_request *req, http_response *resp)
 {
     if (!ra_queue_append(req->query, req->body)) {
@@ -259,13 +263,18 @@ static void doreq_lboard(const http_request *req, http_response *resp)
         resp_json(resp, 200, "{\"Success\":false,\"Error\":\"queue\"}");
         return;
     }
-    char lb[24];
+    char lb[24], s[24];
     if (!req_param(req, "i", lb, sizeof lb))
         strcpy(lb, "0");
+    if (!req_param(req, "s", s, sizeof s))
+        strcpy(s, "0");
+    long score = strtol(s, NULL, 10);
     logger_log("route: submitlbentry %s queued", lb);
     resp_json(resp, 200,
-              "{\"Success\":true,\"Response\":{\"Score\":0,"
-              "\"BestScore\":0,\"NewRank\":1,\"BestRank\":1}}");
+              "{\"Success\":true,\"Response\":{\"Score\":%ld,"
+              "\"BestScore\":%ld,\"RankInfo\":{\"Rank\":1,"
+              "\"NumEntries\":\"1\"},\"TopEntries\":[]}}",
+              score, score);
 }
 
 static void handle_dorequest(const http_request *req, http_response *resp)
