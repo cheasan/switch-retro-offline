@@ -17,13 +17,8 @@
             "type": "zip",
             "zip": [
                 {
-                    "path": "/atmosphere/**/*",
-                    "dest": "/atmosphere",
-                    "type": "update"
-                },
-                {
-                    "path": "/switch/**/*",
-                    "dest": "/switch",
+                    "path": "/**/*",
+                    "dest": "/",
                     "type": "update"
                 }
             ]
