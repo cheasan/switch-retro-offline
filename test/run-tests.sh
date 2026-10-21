@@ -173,6 +173,55 @@ expect_eq "queue empty after already-has" "ok" "$(test ! -s test/root/queue.json
 kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
 
 pkill -x ra-test
+
+# ---------------------------------------------------------------------
+# Cacher app: find, hash and cache every game (scan.c)
+# ---------------------------------------------------------------------
+make cacher-host >/dev/null 2>&1 || { FAIL=$((FAIL+1)); echo "FAIL - cacher-host build"; }
+CB=$(mktemp -d /tmp/opencode/cacher.XXXXXX)
+mkdir -p "$CB/data/cache" "$CB/roms/snes/media" "$CB/roms/psx/Disc Game"
+printf '{"User":"sam","Token":"testtoken123"}' > "$CB/data/account.json"
+head -c 4096 /dev/zero | tr '\0' 'A' > "$CB/roms/snes/Known Game.sfc"
+head -c 4096 /dev/zero | tr '\0' 'B' > "$CB/roms/snes/Other Game.sfc"
+cp "$CB/roms/snes/Known Game.sfc" "$CB/roms/snes/Known Game.srm"
+echo "notes" > "$CB/roms/snes/readme.txt"
+cp "$CB/roms/snes/Other Game.sfc" "$CB/roms/snes/media/Shot.sfc"
+echo 'FILE "Disc Game.bin" BINARY' > "$CB/roms/psx/Disc Game/Disc Game.cue"
+head -c 4096 /dev/zero > "$CB/roms/psx/Disc Game/Disc Game.bin"
+KNOWN=$(md5sum < "$CB/roms/snes/Known Game.sfc" | cut -c1-32)
+cacher() { RAOFFLINE_BASE="$CB/data" RAOFFLINE_UPSTREAM=127.0.0.1:9090 ./build-host/cacher-test "$@" "$CB/roms" "$CB/missing-root" 2>&1; }
+
+: > "$FAKE_LOG"
+FAKE_SETS_HASH=$KNOWN python3 test/fake_ra_server.py &
+FAKE_PID=$!
+sleep 0.5
+OUT=$(cacher)
+expect "cacher: finds 3 games (skips saves, art, text, tracks)" "found 3 games" "$OUT"
+expect "cacher: first run" "summary: cached=1 already=0 no-set=1 no-hash=1 failed=0" "$OUT"
+expect "cacher: sets.json saved" '"GameId": 4321' "$(cat "$CB/data/cache/4321/sets.json" 2>/dev/null)"
+expect "cacher: hash linked" "$KNOWN 4321" "$(cat "$CB/data/cache/hashes.txt" 2>/dev/null)"
+expect "cacher: sends the account" "r=achievementsets&u=sam&t=testtoken123&m=$KNOWN" "$(cat $FAKE_LOG)"
+expect_eq "cacher: two server calls" "2" "$(grep -c achievementsets $FAKE_LOG)"
+OUT=$(cacher)
+expect "cacher: second run skips known games" "summary: cached=0 already=1 no-set=1 no-hash=1 failed=0" "$OUT"
+expect_eq "cacher: no new server calls" "2" "$(grep -c achievementsets $FAKE_LOG)"
+OUT=$(cacher --recheck)
+expect_eq "cacher: recheck asks again" "3" "$(grep -c achievementsets $FAKE_LOG)"
+kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
+
+rm -rf "$CB/data/cache/"*
+OUT=$(cacher)
+expect "cacher: server down -> failed, nothing lost" "summary: cached=0 already=0 no-set=0 no-hash=1 failed=2" "$OUT"
+FAKE_AUTH_FAIL=1 python3 test/fake_ra_server.py &
+FAKE_PID=$!
+sleep 0.5
+: > "$FAKE_LOG"
+OUT=$(cacher)
+expect "cacher: bad token stops the run" "auth=1" "$OUT"
+expect_eq "cacher: stops after one call" "1" "$(grep -c achievementsets $FAKE_LOG)"
+kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
+rm -rf "$CB"
+
 echo
 echo "passed: $PASS  failed: $FAIL"
 [ "$FAIL" -eq 0 ]

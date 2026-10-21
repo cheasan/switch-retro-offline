@@ -95,6 +95,26 @@ and RetroArch shows them as earned. Games that aren't in your cache simply
 show "no achievements" — add them later with `fetch-cache.py`. Copy the new
 cache files to the SD card and play: no reboot needed.
 
+### Cache all your games at once (on the Switch)
+
+The **ra-offline cacher** app caches every game on the SD card in one go.
+Run it once while the Switch has Wi-Fi.
+
+1. Copy `ra-offline-cacher.nro` to `switch/ra-offline-cacher/` on the SD
+   card.
+2. Start it from the Homebrew Menu.
+3. Press **A**.
+
+The app looks in `/tico/roms`, `/roms` and `/retroarch/roms`. To add more
+folders, list them in `/switch/raoffline/cacher-roots.txt`, one per line
+(for example `sdmc:/my/roms`). It hashes each game the same way RetroArch
+does, so the cache matches what RetroArch asks for. The app skips games
+that are already cached, so a second run only fetches new games. Press **Y** to also
+ask again about games that had no achievements last time.
+
+The app needs `account.json` from step 1. When you start a game while the
+Switch is online, the sysmodule also caches it on its own.
+
 ### 5 · Come back online
 
 Within seconds of the Switch connecting to Wi-Fi, queued unlocks are

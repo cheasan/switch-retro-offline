@@ -9,7 +9,9 @@ FAKE_ALREADY=1, every request gets the real server's "User already has"
 rejection, which the module must count as synced.
 
 r=achievementsets gets a large chunked reply (like the real server) for
-hash SETS_HASH, and the real "unknown game" reply for any other hash.
+hash SETS_HASH (or $FAKE_SETS_HASH), and the real "unknown game" reply
+for any other hash. FAKE_AUTH_FAIL=1 answers every request with the real
+server's 401 "Invalid user/token combination."
 """
 import http.server
 import json
@@ -18,8 +20,10 @@ import os
 LOG = os.environ.get("FAKE_LOG", "/tmp/opencode/fake_ra.log")
 FAIL_FIRST = int(os.environ.get("FAKE_FAIL_FIRST", "0"))
 ALREADY = os.environ.get("FAKE_ALREADY") == "1"
+AUTH_FAIL = os.environ.get("FAKE_AUTH_FAIL") == "1"
 count = 0
-SETS_HASH = "5e75000000000000000000000000beef"
+SETS_HASH = os.environ.get("FAKE_SETS_HASH",
+                           "5e75000000000000000000000000beef")
 SETS_GAME = 4321
 
 
@@ -41,6 +45,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with open(LOG, "a") as f:
             f.write(body + "\n")
         count += 1
+        if AUTH_FAIL:
+            resp = json.dumps({"Success": False, "Status": 401,
+                               "Code": "invalid_credentials",
+                               "Error": "Invalid user/token combination."
+                               }).encode()
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
         if "r=achievementsets" in body:
             data = json.dumps(sets_reply(body)).encode()
             self.protocol_version = "HTTP/1.1"

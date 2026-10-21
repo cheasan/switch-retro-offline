@@ -6,3 +6,6 @@ test/root/queue.json
 *.nsp
 *.npdm
 *.map
+cacher/build/
+cacher/*.nro
+cacher/*.nacp

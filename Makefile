@@ -9,7 +9,10 @@
 #   make host-test   (build build-host/ra-test)
 #   make host-run    (build + run; then curl 127.0.0.1:8080)
 #-----------------------------------------------------------------------
-.PHONY: host-test host-run
+.PHONY: host-test host-run cacher-host
+
+RCHEEVOS := third_party/rcheevos
+RHASH_SRC := $(wildcard $(RCHEEVOS)/src/rhash/*.c) $(RCHEEVOS)/src/rc_compat.c
 
 host-test:
 	@mkdir -p build-host
@@ -19,6 +22,16 @@ host-test:
 		source/ra_util.c source/json_lite.c source/ra_cache.c source/ra_queue.c \
 		source/ra_sync.c source/ra_http_resp.c test/ra_transport_host.c \
 		-lpthread
+
+# Desktop build of the cacher's scan code (see cacher/test/cacher_host.c).
+cacher-host:
+	@mkdir -p build-host
+	gcc -Wall -Wextra -O1 -g -fsanitize=address -Iinclude -Icacher/include \
+		-I$(RCHEEVOS)/include -o build-host/cacher-test \
+		cacher/test/cacher_host.c cacher/source/scan.c test/host_logger.c \
+		source/ra_util.c source/json_lite.c source/ra_cache.c \
+		source/ra_http_resp.c test/ra_transport_host.c \
+		$(RHASH_SRC) -lpthread
 
 host-run: host-test
 	./build-host/ra-test
