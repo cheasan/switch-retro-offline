@@ -2,6 +2,8 @@
  * ra_cache.c - offline RetroAchievements data cache. See ra_cache.h.
  */
 #include <ctype.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -154,6 +156,64 @@ char *ra_cache_read_file(const char *fmt, long gameid, size_t *len)
     if (len != NULL)
         *len = (size_t)sz;
     return buf;
+}
+
+/** mkdir that treats "already there" as success. */
+static bool ensure_dir(const char *path)
+{
+    return mkdir(path, 0777) == 0 || errno == EEXIST;
+}
+
+bool ra_cache_store_sets(const char *md5, long gameid,
+                         const char *data, size_t len)
+{
+    char dir[600], path[600], tmp[600];
+    if (gameid <= 0 || data == NULL || len == 0 || len > RA_PATCH_MAX)
+        return false;
+
+    ra_path(dir, sizeof dir, "cache/%ld", gameid);
+    ra_path(path, sizeof path, "cache");
+    if (!ensure_dir(ra_base()) || !ensure_dir(path) || !ensure_dir(dir)) {
+        logger_log("cache: cannot create %s (errno=%d)", dir, errno);
+        return false;
+    }
+
+    /* Write a temp file, then swap it in: a crash mid-write never leaves
+     * a half sets.json that RetroArch would choke on. */
+    ra_path(path, sizeof path, "cache/%ld/sets.json", gameid);
+    ra_path(tmp, sizeof tmp, "cache/%ld/sets.json.tmp", gameid);
+    FILE *f = fopen(tmp, "wb");
+    if (f == NULL) {
+        logger_log("cache: cannot write %s (errno=%d)", tmp, errno);
+        return false;
+    }
+    bool ok = fwrite(data, 1, len, f) == len;
+    ok = (fclose(f) == 0) && ok;
+    remove(path); /* FAT rename does not replace an existing file */
+    if (!ok || rename(tmp, path) != 0) {
+        logger_log("cache: cannot save %s (errno=%d)", path, errno);
+        remove(tmp);
+        return false;
+    }
+
+    /* Link the ROM hash to the game, unless hashes.txt already does. */
+    long known;
+    if (md5 != NULL && strlen(md5) == 32 &&
+        !ra_cache_lookup_gameid(md5, &known)) {
+        char norm[33];
+        snprintf(norm, sizeof norm, "%s", md5);
+        lower(norm);
+        ra_path(path, sizeof path, "cache/hashes.txt");
+        f = fopen(path, "a");
+        if (f == NULL) {
+            logger_log("cache: cannot append %s (errno=%d)", path, errno);
+            return false;
+        }
+        fprintf(f, "%s %ld\n", norm, gameid);
+        fclose(f);
+        read_hashes();
+    }
+    return true;
 }
 
 bool ra_cache_read_account(char *user, size_t usersz,

@@ -6,6 +6,10 @@
  *   <base>/account.json          {"User":..,"Token":..,"Score":..}
  *   <base>/cache/hashes.txt      lines of: <md5hex> <gameid>   (# = comment)
  *   <base>/cache/<gameid>/patch.json   verbatim dorequest patch response
+ *   <base>/cache/<gameid>/sets.json    verbatim achievementsets response
+ *
+ * The module also writes sets.json + hashes.txt itself when RetroArch
+ * asks for an uncached game while the console is online.
  */
 #ifndef RA_OFFLINE_CACHE_H
 #define RA_OFFLINE_CACHE_H
@@ -35,6 +39,12 @@ char *ra_cache_read_patch(long gameid, size_t *len);
  *  for RetroArch 1.22+ / rcheevos v11). malloc'd, NUL-terminated;
  *  caller frees. NULL if not cached. */
 char *ra_cache_read_sets(long gameid, size_t *len);
+
+/** Save an r=achievementsets reply fetched from the real server as
+ *  cache/<gameid>/sets.json, and add "<md5> <gameid>" to hashes.txt when
+ *  the hash is new. Creates the folders when missing. */
+bool ra_cache_store_sets(const char *md5, long gameid,
+                         const char *data, size_t len);
 
 /** Shared reader used by the two above. */
 char *ra_cache_read_file(const char *path_fmt, long gameid, size_t *len);

@@ -4,6 +4,7 @@
  * speaking plain HTTP so tests run against test/fake_ra_server.py.
  */
 #include <errno.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,8 +14,12 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
+#include "ra_http_resp.h"
 #include "ra_transport.h"
 #include "ra_util.h"
+
+/* Sync and fetch-on-miss run on different threads. */
+static pthread_mutex_t g_tlock = PTHREAD_MUTEX_INITIALIZER;
 
 #define RA_UPSTREAM_DEFAULT "127.0.0.1:9090"
 #define IO_TIMEOUT_S 10
@@ -75,10 +80,13 @@ static int send_all(int fd, const char *buf, size_t len)
     return 0;
 }
 
-static int post(void *ctx, const char *query_extra, const char *body,
-                char *resp, size_t respsz)
+/** One round trip. On success returns 0 and sets *raw_out to the whole
+ *  reply (headers + body, malloc'd, NUL-terminated); else -1. */
+static int exchange(const char *query_extra, const char *body,
+                    char **raw_out, size_t *got_out)
 {
-    (void)ctx;
+    *raw_out = NULL;
+    *got_out = 0;
     int fd = connect_upstream();
     if (fd < 0)
         return -1;
@@ -104,40 +112,84 @@ static int post(void *ctx, const char *query_extra, const char *body,
         return -1;
     }
 
-    /* Read the whole response. */
-    char raw[8192];
-    size_t got = 0;
+    /* Read the whole response; grow the buffer as data arrives. */
+    size_t cap = 8192, got = 0;
+    char *raw = malloc(cap);
+    if (raw == NULL) {
+        close(fd);
+        return -1;
+    }
     for (;;) {
-        if (got + 1 >= sizeof raw)
-            break;
-        ssize_t n = recv(fd, raw + got, sizeof raw - 1 - got, 0);
+        if (got + 1 >= cap) {
+            if (cap >= RA_FETCH_MAX)
+                break;
+            char *bigger = realloc(raw, cap * 2);
+            if (bigger == NULL)
+                break;
+            raw = bigger;
+            cap *= 2;
+        }
+        ssize_t n = recv(fd, raw + got, cap - 1 - got, 0);
         if (n <= 0)
             break;
         got += (size_t)n;
-        raw[got] = '\0';
     }
     close(fd);
-    if (got == 0)
+    raw[got] = '\0';
+    if (got == 0) {
+        free(raw);
+        return -1;
+    }
+    *raw_out = raw;
+    *got_out = got;
+    return 0;
+}
+
+static int post(void *ctx, const char *query_extra, const char *body,
+                char *resp, size_t respsz)
+{
+    (void)ctx;
+    if (resp != NULL && respsz > 0)
+        resp[0] = '\0';
+
+    char *raw;
+    size_t got;
+    pthread_mutex_lock(&g_tlock);
+    int rc = exchange(query_extra, body, &raw, &got);
+    pthread_mutex_unlock(&g_tlock);
+    if (rc != 0)
         return -1;
 
-    /* Status line: "HTTP/1.1 200 OK" */
-    int status = -1;
-    if (strncmp(raw, "HTTP/", 5) == 0) {
-        const char *sp = strchr(raw, ' ');
-        if (sp != NULL)
-            status = atoi(sp + 1);
-    }
-    const char *body_start = strstr(raw, "\r\n\r\n");
-    if (body_start != NULL) {
-        body_start += 4;
-        snprintf(resp, respsz, "%s", body_start);
-    } else if (respsz > 0) {
-        resp[0] = '\0';
-    }
+    int status;
+    size_t len;
+    char *b = ra_http_body(raw, got, &status, &len);
+    if (b != NULL && resp != NULL)
+        snprintf(resp, respsz, "%s", b);
+    free(b);
+    free(raw);
     return status;
 }
 
-static ra_transport g_transport = { .post = post, .ctx = NULL };
+static char *fetch(void *ctx, const char *body, int *status, size_t *len)
+{
+    (void)ctx;
+    *status = -1;
+    *len = 0;
+
+    char *raw;
+    size_t got;
+    pthread_mutex_lock(&g_tlock);
+    int rc = exchange(NULL, body, &raw, &got);
+    pthread_mutex_unlock(&g_tlock);
+    if (rc != 0)
+        return NULL;
+
+    char *b = ra_http_body(raw, got, status, len);
+    free(raw);
+    return b;
+}
+
+static ra_transport g_transport = { .post = post, .fetch = fetch, .ctx = NULL };
 
 const ra_transport *ra_transport_default(void)
 {

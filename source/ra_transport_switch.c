@@ -24,6 +24,7 @@
 #include <switch.h>
 
 #include "logger.h"
+#include "ra_http_resp.h"
 #include "ra_transport.h"
 
 #define RA_HOST "retroachievements.org"
@@ -68,18 +69,24 @@ static int tcp_connect(void)
     return fd;
 }
 
-static int post(void *ctx, const char *query_extra, const char *body,
-                char *resp, size_t respsz)
+/* The loop thread (sync) and the HTTP worker (fetch on a cache miss)
+ * share the single ssl session; one request at a time. */
+static Mutex g_tlock;
+static bool g_tlock_ready;
+
+/** One TLS round trip. On success returns 0 and sets *raw_out to the
+ *  whole reply (headers + body, malloc'd, NUL-terminated); else -1. */
+static int exchange(const char *query_extra, const char *body,
+                    char **raw_out, size_t *got_out)
 {
-    (void)ctx;
-    if (resp != NULL && respsz > 0)
-        resp[0] = '\0';
+    *raw_out = NULL;
+    *got_out = 0;
 
     int fd = tcp_connect();
     if (fd < 0)
         return -1;
 
-    int status = -1;
+    int result = -1;
     int sfd = -1; /* ssl's own copy of the socket, closed before the conn */
     SslContext ctxs;
     SslConnection conn;
@@ -164,32 +171,36 @@ static int post(void *ctx, const char *query_extra, const char *body,
         }
     }
 
-    /* Read response headers + body. */
-    static char raw[8192];
-    size_t got = 0;
+    /* Read response headers + body; grow the buffer as data arrives. */
+    size_t cap = 8192, got = 0;
+    char *raw = malloc(cap);
+    if (raw == NULL)
+        goto out_conn;
     for (;;) {
-        if (got + 1 >= sizeof raw)
-            break;
+        if (got + 1 >= cap) {
+            if (cap >= RA_FETCH_MAX)
+                break;
+            char *bigger = realloc(raw, cap * 2);
+            if (bigger == NULL)
+                break;
+            raw = bigger;
+            cap *= 2;
+        }
         u32 n;
-        rc = sslConnectionRead(&conn, raw + got, (u32)(sizeof raw - 1 - got), &n);
+        rc = sslConnectionRead(&conn, raw + got, (u32)(cap - 1 - got), &n);
         if (R_FAILED(rc) || n == 0)
             break;
         got += n;
-        raw[got] = '\0';
     }
+    raw[got] = '\0';
     if (got == 0) {
         step_failed("sslConnectionRead (no data)", rc);
+        free(raw);
         goto out_conn;
     }
-
-    if (strncmp(raw, "HTTP/", 5) == 0) {
-        const char *sp = strchr(raw, ' ');
-        if (sp != NULL)
-            status = atoi(sp + 1);
-    }
-    const char *b = strstr(raw, "\r\n\r\n");
-    if (b != NULL && resp != NULL)
-        snprintf(resp, respsz, "%s", b + 4);
+    *raw_out = raw;
+    *got_out = got;
+    result = 0;
 
 out_conn:
     if (sfd >= 0)
@@ -200,10 +211,68 @@ out_ctx:
 out_close:
     close(fd);
     (void)conn_ok;
+    return result;
+}
+
+static int locked_exchange(const char *query_extra, const char *body,
+                           char **raw_out, size_t *got_out)
+{
+    if (!g_tlock_ready) {
+        mutexInit(&g_tlock);
+        g_tlock_ready = true;
+    }
+    mutexLock(&g_tlock);
+    int rc = exchange(query_extra, body, raw_out, got_out);
+    mutexUnlock(&g_tlock);
+    return rc;
+}
+
+static int post(void *ctx, const char *query_extra, const char *body,
+                char *resp, size_t respsz)
+{
+    (void)ctx;
+    if (resp != NULL && respsz > 0)
+        resp[0] = '\0';
+
+    char *raw;
+    size_t got;
+    if (locked_exchange(query_extra, body, &raw, &got) != 0)
+        return -1;
+
+    int status;
+    size_t len;
+    char *b = ra_http_body(raw, got, &status, &len);
+    if (resp != NULL) {
+        /* Cut-short chunk framing: fall back to the raw body text, which
+         * still holds the few flat keys sync reads. */
+        const char *hend = strstr(raw, "\r\n\r\n");
+        if (b != NULL)
+            snprintf(resp, respsz, "%s", b);
+        else if (hend != NULL)
+            snprintf(resp, respsz, "%s", hend + 4);
+    }
+    free(b);
+    free(raw);
     return status;
 }
 
-static ra_transport g_transport = { .post = post, .ctx = NULL };
+static char *fetch(void *ctx, const char *body, int *status, size_t *len)
+{
+    (void)ctx;
+    *status = -1;
+    *len = 0;
+
+    char *raw;
+    size_t got;
+    if (locked_exchange(NULL, body, &raw, &got) != 0)
+        return NULL;
+
+    char *b = ra_http_body(raw, got, status, len);
+    free(raw);
+    return b;
+}
+
+static ra_transport g_transport = { .post = post, .fetch = fetch, .ctx = NULL };
 
 const ra_transport *ra_transport_default(void)
 {

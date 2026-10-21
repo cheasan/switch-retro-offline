@@ -136,6 +136,33 @@ expect "sync: retry succeeds"           '"synced":1' "$(curl -s "$BASE/sync-now"
 expect_eq "queue finally empty" "ok" "$(test ! -s test/root/queue.json && echo ok)"
 kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
 
+# ---------------------------------------------------------------------
+# Cache miss while online: fetch from the server, cache for offline
+# ---------------------------------------------------------------------
+NEWH=5e75000000000000000000000000beef
+cp test/root/cache/hashes.txt /tmp/opencode/hashes.txt.bak
+expect "sets: offline miss says how to fix" 'Play this game once online' "$(curl -s -X POST "$BASE/dorequest.php" -d "r=achievementsets&u=sam&t=testtoken123&m=$NEWH")"
+
+RAOFFLINE_UPSTREAM=127.0.0.1:9090 python3 test/fake_ra_server.py &
+FAKE_PID=$!
+sleep 0.5
+SETS=$(curl -s -X POST "$BASE/dorequest.php" -d "r=achievementsets&u=sam&t=testtoken123&m=$NEWH")
+expect "sets: fetched on miss"        '"GameId": 4321'          "$SETS"
+expect "sets: chunked body decoded"   'Fake Achievement 99'     "$SETS"
+expect "sets: saved to cache"         'Fake Achievement 99'     "$(cat test/root/cache/4321/sets.json 2>/dev/null)"
+expect "sets: hash linked"            "$NEWH 4321"              "$(cat test/root/cache/hashes.txt)"
+expect "sets: forwarded RetroArch's request" "r=achievementsets&u=sam&t=testtoken123&m=$NEWH" "$(cat $FAKE_LOG)"
+UNK=$(curl -s -X POST "$BASE/dorequest.php" -d 'r=achievementsets&u=sam&t=testtoken123&m=0000000000000000000000000000abcd')
+expect "sets: unknown game passed through" '"GameId": 0' "$UNK"
+expect_eq "sets: unknown game not cached" "0" "$(grep -c abcd test/root/cache/hashes.txt)"
+kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
+
+# server gone: the game now loads from the cache
+expect "sets: served offline after fetch" 'Fake Achievement 99' "$(curl -s -X POST "$BASE/dorequest.php" -d "r=achievementsets&u=sam&t=testtoken123&m=$NEWH")"
+expect_eq "sets: one hash line only" "1" "$(grep -c "$NEWH" test/root/cache/hashes.txt)"
+cp /tmp/opencode/hashes.txt.bak test/root/cache/hashes.txt
+rm -rf test/root/cache/4321
+
 # server says "User already has": counted as synced, not retried forever
 FAKE_ALREADY=1 RAOFFLINE_UPSTREAM=127.0.0.1:9090 python3 test/fake_ra_server.py &
 FAKE_PID=$!

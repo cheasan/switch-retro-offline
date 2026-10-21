@@ -197,9 +197,9 @@ int main(int argc, char *argv[])
 
     bool have_log = logger_init();
 #ifdef RA_NRO
-    logger_log("ra-offline v0.4.4 (NRO build) starting");
+    logger_log("ra-offline v0.4.5 (NRO build) starting");
 #else
-    logger_log("ra-offline v0.4.4 (sysmodule) starting");
+    logger_log("ra-offline v0.4.5 (sysmodule) starting");
 #endif
     if (!have_log)
         logger_log("WARNING: SD logging unavailable; continuing headless");

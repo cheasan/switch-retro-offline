@@ -7,6 +7,9 @@
  *   r=login2 (and legacy r=login)  -> offline identity from account.json
  *   r=gameid&m=<cheevos md5>       -> game ID from cache/hashes.txt
  *   r=patch&g=<id>                 -> verbatim cache/<id>/patch.json
+ *   r=achievementsets&m=<md5>      -> verbatim cache/<id>/sets.json; on a
+ *                                     miss while online, fetched from the
+ *                                     real server and cached
  *   r=startsession / r=ping        -> {"Success":true}
  *   r=awardachievement&a=..&h=..   -> appended to queue.json, ack'd
  *   r=submitnewticket / unknown r  -> harmless {"Success":true}
@@ -184,12 +187,59 @@ static void doreq_patch(const http_request *req, http_response *resp)
     }
 }
 
+/** Cache miss while online: ask the real server, save its reply to the
+ *  cache so the game also works offline later, and pass it to RetroArch.
+ *  Returns false (resp untouched) when offline or the fetch fails. */
+static bool sets_from_server(const http_request *req, const char *md5,
+                             http_response *resp)
+{
+    const ra_transport *t = ra_transport_default();
+    const char *body = (req->body && req->body[0]) ? req->body : req->query;
+    if (!ra_net_online() || t->fetch == NULL || body[0] == '\0')
+        return false;
+
+    int status;
+    size_t len;
+    char *reply = t->fetch(t->ctx, body, &status, &len);
+    if (reply == NULL || status != 200) {
+        logger_log("route: achievementsets fetch failed (status=%d)", status);
+        free(reply);
+        return false;
+    }
+
+    bool ok = false;
+    long gameid = 0;
+    json_get_bool(reply, "Success", &ok);
+    json_get_int(reply, "GameId", &gameid);
+    if (ok && gameid > 0) {
+        bool saved = ra_cache_store_sets(md5, gameid, reply, len);
+        logger_log("route: achievementsets %ld fetched online (%zu bytes)%s",
+                   gameid, len, saved ? ", cached for offline" : "");
+    } else {
+        logger_log("route: achievementsets fetched online, not cached "
+                   "(Success=%s GameId=%ld)", ok ? "true" : "false", gameid);
+    }
+    /* Pass the reply through as-is, the same as RetroArch online. */
+    resp->status = 200;
+    resp->content_type = "application/json";
+    resp->body = reply;
+    resp->body_len = len;
+    return true;
+}
+
+static void sets_not_cached(http_response *resp)
+{
+    resp_json(resp, 200,
+              "{\"Success\":false,\"Error\":\"Not cached offline. "
+              "Play this game once online to cache it.\"}");
+}
+
 static void doreq_sets(const http_request *req, http_response *resp)
 {
     /* RetroArch 1.22 (rcheevos v11) calls this with the ROM hash
      * (m=<md5>) BEFORE any gameid lookup; older tools may pass g=.
      * Accept both. */
-    char g[24], md5[64];
+    char g[24], md5[64] = "";
     long gameid = -1;
     if (req_param(req, "g", g, sizeof g))
         gameid = strtol(g, NULL, 10);
@@ -203,8 +253,8 @@ static void doreq_sets(const http_request *req, http_response *resp)
         logger_log("route: achievementsets unmatched (query='%s' body='%s')",
                    req->query ? req->query : "",
                    req->body ? req->body : "");
-        resp_json(resp, 200,
-                  "{\"Success\":false,\"Error\":\"not cached offline\"}");
+        if (!sets_from_server(req, md5, resp))
+            sets_not_cached(resp);
         return;
     }
     size_t len;
@@ -218,8 +268,8 @@ static void doreq_sets(const http_request *req, http_response *resp)
         resp->body_len = len;
     } else {
         logger_log("route: achievementsets %ld not cached", gameid);
-        resp_json(resp, 200,
-                  "{\"Success\":false,\"Error\":\"not cached offline\"}");
+        if (!sets_from_server(req, md5, resp))
+            sets_not_cached(resp);
     }
 }
 

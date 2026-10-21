@@ -17,7 +17,7 @@ host-test:
 		test/test_main.c test/host_logger.c \
 		source/http_server.c source/routes.c \
 		source/ra_util.c source/json_lite.c source/ra_cache.c source/ra_queue.c \
-		source/ra_sync.c test/ra_transport_host.c \
+		source/ra_sync.c source/ra_http_resp.c test/ra_transport_host.c \
 		-lpthread
 
 host-run: host-test

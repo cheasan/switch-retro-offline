@@ -11,12 +11,19 @@
 
 #include <stddef.h>
 
+/** Largest reply fetch() accepts (raw bytes, headers included). */
+#define RA_FETCH_MAX (2 * 1024 * 1024)
+
 typedef struct {
     /** POST to upstream /dorequest.php (query_extra may be NULL).
      *  On HTTP reply: returns status code and fills resp (NUL-terminated).
      *  On connection failure returns negative. */
     int  (*post)(void *ctx, const char *query_extra, const char *body,
                  char *resp, size_t respsz);
+    /** POST body to upstream /dorequest.php and return the whole reply
+     *  body (malloc'd, NUL-terminated, at most RA_FETCH_MAX bytes; caller
+     *  frees), or NULL on connection failure. *status = HTTP status. */
+    char *(*fetch)(void *ctx, const char *body, int *status, size_t *len);
     void *ctx;
 } ra_transport;
 
