@@ -71,11 +71,16 @@ its `account.json`: it holds your user name and login token.
 
 ### 2 · Install the sysmodule
 
-Copy to your SD card (merge with the existing `atmosphere` folder):
+Download `ra-offline-vX.Y.Z.zip` from this repo's
+[Releases](https://github.com/cheasan/switch-retro-offline/releases). Copy
+its `atmosphere` and `switch` folders to the root of your SD card (merge
+with the folders already there):
 
 ```
-atmosphere/contents/4300000000000042/exefs.nsp     <- from this repo's Releases
+atmosphere/contents/4300000000000042/exefs.nsp     <- the sysmodule
 atmosphere/contents/4300000000000042/toolbox.json
+atmosphere/contents/4300000000000042/flags/boot2.flag
+switch/ra-offline-cacher/ra-offline-cacher.nro     <- the cacher app (step 4)
 switch/raoffline/...                               <- from step 1
 ```
 
@@ -126,8 +131,8 @@ cacher** app caches all your games in one run. You do not need to start
 each game or restart the console. Run it while the Switch has Wi-Fi, for
 example before a trip.
 
-1. Copy `ra-offline-cacher.nro` to `switch/ra-offline-cacher/` on the SD
-   card.
+1. Check that `switch/ra-offline-cacher/ra-offline-cacher.nro` is on the
+   SD card. The release zip puts it there (step 2).
 2. Start it from the Homebrew Menu.
 3. Press **A**.
 
