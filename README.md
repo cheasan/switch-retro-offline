@@ -27,7 +27,8 @@ online:   ra-offline  ───────────────────�
 - RetroArch is pointed at the local proxy with a single config line
   (`cheevos_custom_host`).
 - Game data (login, game identification, achievement definitions) is served
-  from a cache you pre-download on your computer.
+  from a cache on the SD card. A game must be in that cache **before** you
+  go offline (see [step 4](#4--cache-your-games-before-you-go-offline)).
 - Unlocks are appended to a queue file and acknowledged to RetroArch
   immediately, so gameplay is never blocked.
 - When the Switch comes online, the queue is replayed to the real server
@@ -39,17 +40,22 @@ online:   ra-offline  ───────────────────�
 - RetroArch for Switch (standard build) with RetroAchievements enabled and
   logged in
 - A [retroachievements.org](https://retroachievements.org) account
-- A computer, once, to pre-cache the games you want to play offline
+- A computer, once, to save your account file on the SD card
+- Wi-Fi on the Switch at least once per game, to cache it before you play
+  it offline
 
 ## Setup
 
-### 1 · Pre-cache your games (on your computer, online)
+### 1 · Save your account (on your computer, online)
 
 ```sh
 git clone https://github.com/cheasan/switch-retro-offline
 cd switch-retro-offline/tools
 
-# cache one game and link it to your ROM's achievement hash:
+# save your account only (enough if you cache games on the Switch, step 4):
+python3 fetch-cache.py --user YOUR_RA_NAME --password YOUR_RA_PASSWORD
+
+# or also cache one game and link it to your ROM's achievement hash:
 python3 fetch-cache.py --user YOUR_RA_NAME --password YOUR_RA_PASSWORD \
     --game 1234 --hash <md5-hash>:1234
 ```
@@ -60,7 +66,8 @@ achievements enabled (online), then copy it from RetroArch's log — the line
 looks like `cheevos hash: <md5>`.
 
 This produces an `ra-offline` folder (account + game cache) — by default at
-`sd/switch/raoffline/` inside the repo, ready to copy.
+`sd/switch/raoffline/` inside the repo, ready to copy. The Switch apps need
+its `account.json`: it holds your user name and login token.
 
 ### 2 · Install the sysmodule
 
@@ -88,17 +95,36 @@ bash tools/ra-config.sh /path/to/sd/retroarch/retroarch.cfg
 Restart RetroArch (it reads the config once at boot). To go back to the
 real server any time: `ra-config.sh <cfg> --restore`.
 
-### 4 · Play offline
+### 4 · Cache your games before you go offline
 
-Just play. Unlocks are queued to `/switch/raoffline/queue.json` instantly
-and RetroArch shows them as earned. Games that aren't in your cache simply
-show "no achievements" — add them later with `fetch-cache.py`. Copy the new
-cache files to the SD card and play: no reboot needed.
+> [!IMPORTANT]
+> Offline, ra-offline can only answer for games that are already in its
+> cache. It cannot download anything without internet. If you start a game
+> it has never seen, RetroArch shows
+> *"Not cached offline. Play this game once online to cache it."* and you
+> earn no achievements in that session. You cannot fix this while you are
+> offline.
 
-### Cache all your games at once (on the Switch)
+There are three ways to put a game in the cache. All of them need internet.
 
-The **ra-offline cacher** app caches every game on the SD card in one go.
-Run it once while the Switch has Wi-Fi.
+| Way | What you do | Best for |
+|---|---|---|
+| **Play it once online** (recommended) | Start the game in RetroArch while the Switch has Wi-Fi. | Each game you plan to play |
+| **ra-offline cacher app** | Run the app once. It caches every game on the SD card. | A full library, or new games you have not started yet |
+| **`fetch-cache.py`** | Run the tool on a computer (step 1). | Advanced use |
+
+**We recommend that you start each game once online before you take it
+offline.** The sysmodule then caches the game on its own. That first launch
+also proves that the whole chain works: RetroArch logs in, finds the game,
+and loads its achievements. If something is wrong, you see it while you
+can still fix it.
+
+#### The ra-offline cacher app
+
+Starting every game one by one takes a long time. The **ra-offline
+cacher** app caches all your games in one run. You do not need to start
+each game or restart the console. Run it while the Switch has Wi-Fi, for
+example before a trip.
 
 1. Copy `ra-offline-cacher.nro` to `switch/ra-offline-cacher/` on the SD
    card.
@@ -112,10 +138,28 @@ does, so the cache matches what RetroArch asks for. The app skips games
 that are already cached, so a second run only fetches new games. Press **Y** to also
 ask again about games that had no achievements last time.
 
-The app needs `account.json` from step 1. When you start a game while the
-Switch is online, the sysmodule also caches it on its own.
+Good to know:
 
-### 5 · Come back online
+- The app needs `account.json` from step 1.
+- New cache files work at once. You do not need to reboot or restart
+  RetroArch.
+- Run the app again each time you add games to the SD card.
+- Keep the Switch awake during the run. Sleep cuts the Wi-Fi and stops the
+  download.
+- Some games have no achievement set on retroachievements.org, for example
+  most fan translations, ROM hacks and homebrew. The app lists them as
+  "no achievement set". That is normal.
+- The cacher checks that retroachievements.org knows each game. It does
+  not test your RetroArch setup. Start one game online once to test
+  that.
+
+### 5 · Play offline
+
+Just play. Unlocks are queued to `/switch/raoffline/queue.json` instantly
+and RetroArch shows them as earned. If a game shows "Not cached offline",
+cache it with one of the ways in step 4 the next time you have Wi-Fi.
+
+### 6 · Come back online
 
 Within seconds of the Switch connecting to Wi-Fi, queued unlocks are
 uploaded and the queue file empties. Check your profile on
@@ -133,6 +177,9 @@ step that failed, or quotes the server's error text.
   `retroarch/retroarch-keychain.key`. Do not delete the key file: RetroArch
   then cannot read the saved password again. Set the proxy first, then log
   in again from RetroArch's Achievements settings.
+- **"Not cached offline. Play this game once online to cache it.":** the
+  game is not in the cache. Connect to Wi-Fi. Then start the game once, or
+  run the cacher app (step 4). You do not need to reboot afterwards.
 - **Black screen when a game starts:** the RetroArch menu and its cores
   come from different releases. Keep the menu (`switch/retroarch_switch.nro`)
   and the cores in `retroarch/cores/` from the same download.
