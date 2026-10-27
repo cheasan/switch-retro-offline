@@ -100,11 +100,13 @@ static int exchange(const char *query_extra, const char *body,
     int hn = snprintf(head, sizeof head,
                       "POST %s HTTP/1.1\r\n"
                       "Host: %s\r\n"
+                      "User-Agent: %s\r\n"
                       "Content-Type: application/x-www-form-urlencoded\r\n"
                       "Content-Length: %zu\r\n"
                       "Connection: close\r\n"
                       "\r\n",
-                      path, ra_upstream_base(), body ? strlen(body) : 0);
+                      path, ra_upstream_base(), RAOFFLINE_UA,
+                      body ? strlen(body) : 0);
 
     if (send_all(fd, head, (size_t)hn) != 0 ||
         (body && *body && send_all(fd, body, strlen(body)) != 0)) {

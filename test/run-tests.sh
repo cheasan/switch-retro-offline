@@ -120,6 +120,12 @@ expect "fake got a=111"   'a=111&h=1'  "$(cat $FAKE_LOG)"
 expect "fake got a=112"   'a=112&h=1'  "$(cat $FAKE_LOG)"
 expect_eq "queue file emptied" "ok" "$(test ! -s test/root/queue.json && echo ok)"
 
+# every upstream request carries the unique user agent tag RA asked for,
+# with a known client name first (unknown clients get 403 on awards)
+expect "sync: UA has ra-offline tag"  'ra-offline/0.4.6' "$(grep '^UA:' $FAKE_LOG)"
+expect "sync: UA names a known client" 'UA: RetroArch/'  "$(grep '^UA:' $FAKE_LOG)"
+expect_eq "sync: one UA line per request" "$(grep -cv '^UA:' $FAKE_LOG)" "$(grep -c '^UA:' $FAKE_LOG)"
+
 # failing server: queue must survive
 kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
 curl -s -X POST "$BASE/dorequest.php" -d 'r=awardachievement&u=sam&t=testtoken123&a=113&h=1&m=m113&v=v113' >/dev/null
@@ -172,6 +178,37 @@ expect "sync: already-has -> synced" '"synced":1' "$(curl -s "$BASE/sync-now")"
 expect_eq "queue empty after already-has" "ok" "$(test ! -s test/root/queue.json && echo ok)"
 kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
 
+# ---------------------------------------------------------------------
+# RetroAchievements 7-day rule: queue entries older than 7 days are
+# dropped, never sent - sent or not (achievement logic changes often)
+# ---------------------------------------------------------------------
+RAOFFLINE_UPSTREAM=127.0.0.1:9090 python3 test/fake_ra_server.py &
+FAKE_PID=$!
+sleep 0.5
+: > "$FAKE_LOG"
+NOW=$(date +%s)
+# earned 8 days ago: too old -> dropped without sending
+printf '{"ts":%s,"qs":"","body":"r=awardachievement&u=sam&t=testtoken123&a=115&h=1&m=m115&v=v115"}\n' $((NOW - 8*86400)) >> test/root/queue.json
+# earned 3 days ago: inside the 7-day window -> sent
+printf '{"ts":%s,"qs":"","body":"r=awardachievement&u=sam&t=testtoken123&a=116&h=1&m=m116&v=v116"}\n' $((NOW - 3*86400)) >> test/root/queue.json
+R=$(curl -s "$BASE/sync-now")
+expect "ttl: expired entry counted"   '"expired":1' "$R"
+expect "ttl: fresh entry still sent"  '"synced":1'  "$R"
+expect_eq "ttl: expired never uploaded" "0" "$(grep -c 'a=115' $FAKE_LOG)"
+expect "ttl: fresh entry uploaded"    'a=116'       "$(cat $FAKE_LOG)"
+expect_eq "ttl: queue emptied" "ok" "$(test ! -s test/root/queue.json && echo ok)"
+# entry without ts (malformed or pre-0.4.6 uptime stamp): dropped too
+printf '{"ts":0,"qs":"","body":"r=awardachievement&u=sam&t=testtoken123&a=117&h=1&m=m117&v=v117"}\n' >> test/root/queue.json
+expect "ttl: ts=0 entry dropped" '"expired":1' "$(curl -s "$BASE/sync-now")"
+expect_eq "ttl: queue empty again" "ok" "$(test ! -s test/root/queue.json && echo ok)"
+kill $FAKE_PID 2>/dev/null; wait $FAKE_PID 2>/dev/null
+
+# purge also happens when the server is unreachable ("regardless of
+# whether the entries were sent"): the age check needs no network
+printf '{"ts":%s,"qs":"","body":"r=awardachievement&u=sam&t=testtoken123&a=118&h=1&m=m118&v=v118"}\n' $((NOW - 9*86400)) >> test/root/queue.json
+expect "ttl: purge works with server down" '"expired":1' "$(curl -s "$BASE/sync-now")"
+expect_eq "ttl: queue emptied offline too" "ok" "$(test ! -s test/root/queue.json && echo ok)"
+
 pkill -x ra-test
 
 # ---------------------------------------------------------------------
@@ -201,6 +238,7 @@ expect "cacher: first run" "summary: cached=1 already=0 no-set=1 no-hash=1 faile
 expect "cacher: sets.json saved" '"GameId": 4321' "$(cat "$CB/data/cache/4321/sets.json" 2>/dev/null)"
 expect "cacher: hash linked" "$KNOWN 4321" "$(cat "$CB/data/cache/hashes.txt" 2>/dev/null)"
 expect "cacher: sends the account" "r=achievementsets&u=sam&t=testtoken123&m=$KNOWN" "$(cat $FAKE_LOG)"
+expect "cacher: unique UA tag" 'ra-offline/0.4.6' "$(grep '^UA:' $FAKE_LOG)"
 expect_eq "cacher: two server calls" "2" "$(grep -c achievementsets $FAKE_LOG)"
 OUT=$(cacher)
 expect "cacher: second run skips known games" "summary: cached=0 already=1 no-set=1 no-hash=1 failed=0" "$OUT"

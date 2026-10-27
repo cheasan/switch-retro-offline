@@ -14,7 +14,7 @@ endif
 TOPDIR   := $(abspath ..)
 TARGET   := ra-offline-cacher
 BUILD    := build
-VERSION  := 0.4.5
+VERSION  := 0.4.6
 ICON     := $(TOPDIR)/assets/icon.jpg
 RCHEEVOS := $(TOPDIR)/third_party/rcheevos
 

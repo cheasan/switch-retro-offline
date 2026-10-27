@@ -2,8 +2,10 @@
 """
 fake_ra_server.py - stand-in for retroachievements.org on the laptop.
 
-Records every POST body to $FAKE_LOG (one per line) and replies like the
-real dorequest.php. With FAKE_FAIL_FIRST=N set, the first N requests get
+Records every POST body to $FAKE_LOG (one per line), each followed
+by a "UA: <User-Agent>" line when the client sends that header, so
+tests can check the ra-offline user agent tag. Replies like the real
+dorequest.php. With FAKE_FAIL_FIRST=N set, the first N requests get
 {"Success":false} to exercise the retry-keeps-queue path. With
 FAKE_ALREADY=1, every request gets the real server's "User already has"
 rejection, which the module must count as synced.
@@ -44,6 +46,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(n).decode("utf-8", "replace")
         with open(LOG, "a") as f:
             f.write(body + "\n")
+            ua = self.headers.get("User-Agent")
+            if ua:
+                f.write("UA: " + ua + "\n")
         count += 1
         if AUTH_FAIL:
             resp = json.dumps({"Success": False, "Status": 401,

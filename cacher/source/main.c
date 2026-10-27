@@ -17,7 +17,7 @@
 #include "rc_hash.h"
 #include "scan.h"
 
-#define VERSION "0.4.5"
+#define VERSION "0.4.6"
 #define MAX_ROOTS 16
 
 static const char *const k_default_roots[] = {

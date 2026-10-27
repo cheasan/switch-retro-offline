@@ -81,7 +81,7 @@ long ra_sync_pending(void)
 
 bool ra_sync_run(const ra_transport *t, ra_sync_result *out)
 {
-    ra_sync_result res = { 0, 0, 0 };
+    ra_sync_result res = { 0, 0, 0, 0 };
     if (t == NULL || t->post == NULL)
         return false;
 
@@ -92,7 +92,7 @@ bool ra_sync_run(const ra_transport *t, ra_sync_result *out)
     ra_queue_unlock();
     if (snapshot == NULL) {
         if (out != NULL) {
-            out->total = out->synced = out->failed = 0;
+            out->total = out->synced = out->failed = out->expired = 0;
         }
         return true; /* nothing queued */
     }
@@ -114,6 +114,7 @@ bool ra_sync_run(const ra_transport *t, ra_sync_result *out)
     /* 2. Replay each line (no lock held during network I/O). */
     char *saveptr = NULL;
     int idx = 0;
+    long long now = ra_now();
     for (char *line = strtok_r(snapshot, "\n", &saveptr);
          line != NULL;
          line = strtok_r(NULL, "\n", &saveptr), idx++) {
@@ -121,6 +122,24 @@ bool ra_sync_run(const ra_transport *t, ra_sync_result *out)
 
         if (line[0] == '\0') {
             synced[idx] = true; /* blank: drop */
+            continue;
+        }
+
+        /* RetroAchievements rule (RAdmin, 2026-10): never replay an
+         * entry older than 7 days - achievement logic changes
+         * frequently, so a stale unlock may no longer be valid.
+         * Dropped here regardless of send success; ts defaults to 0
+         * (malformed line or pre-0.4.6 uptime stamp), which reads as
+         * ancient and drops the line too. A clock behind ts (console
+         * clock reset) keeps the line: the negative age does not pass
+         * the time-to-live (TTL) check. */
+        long ts = 0;
+        json_get_int(line, "ts", &ts);
+        if (now - (long long)ts > RA_QUEUE_TTL_S) {
+            synced[idx] = true; /* expired: drop without sending */
+            res.expired++;
+            logger_log("sync: DROP expired (%lld days old), not sent",
+                       (now - (long long)ts) / (24 * 60 * 60));
             continue;
         }
 
@@ -220,8 +239,9 @@ bool ra_sync_run(const ra_transport *t, ra_sync_result *out)
 
     if (out != NULL)
         *out = res;
-    logger_log("sync: total=%d synced=%d failed=%d (file kept: %s)",
-               res.total, res.synced, res.failed,
+    logger_log("sync: total=%d synced=%d failed=%d expired=%d "
+               "(file kept: %s)",
+               res.total, res.synced, res.failed, res.expired,
                write_ok ? "yes" : "NO (write error)");
     return write_ok;
 }

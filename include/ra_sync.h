@@ -13,6 +13,7 @@ typedef struct {
     int total;   /**< lines found in the snapshot       */
     int synced;  /**< acknowledged by the real server   */
     int failed;  /**< kept in the queue for next time   */
+    int expired; /**< dropped: older than RA_QUEUE_TTL_S */
 } ra_sync_result;
 
 /** Lines currently waiting in queue.json. */

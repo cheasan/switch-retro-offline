@@ -380,9 +380,9 @@ void route_dispatch(const http_request *req, http_response *resp)
         bool ok = ra_sync_run(ra_transport_default(), &res);
         resp_json(resp, ok ? 200 : 500,
                   "{\"Success\":%s,\"synced\":%d,\"failed\":%d,"
-                  "\"left\":%ld}",
+                  "\"expired\":%d,\"left\":%ld}",
                   ok ? "true" : "false", res.synced, res.failed,
-                  ra_sync_pending());
+                  res.expired, ra_sync_pending());
         return;
     }
     if (strcmp(req->path, "/dorequest.php") == 0) {

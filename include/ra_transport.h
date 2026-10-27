@@ -14,6 +14,16 @@
 /** Largest reply fetch() accepts (raw bytes, headers included). */
 #define RA_FETCH_MAX (2 * 1024 * 1024)
 
+/** User-Agent for every request ra-offline itself sends upstream.
+ *  The first token stays a known RetroAchievements client: the real
+ *  server rejects award/leaderboard submissions from unknown clients
+ *  with 403 "unsupported_client" (found in hardware testing). The
+ *  "ra-offline/<version>" suffix is the unique tag RetroAchievements
+ *  asked for (RAdmin, 2026-10): it lets them tag cached unlocks for
+ *  analytics. Same shape as the approved RAOfflineProxy uses:
+ *  "RetroArch/1.21.0 (Linux) RAOfflineProxy/<version>". */
+#define RAOFFLINE_UA "RetroArch/1.22.2 ra-offline/0.4.6"
+
 typedef struct {
     /** POST to upstream /dorequest.php (query_extra may be NULL).
      *  On HTTP reply: returns status code and fills resp (NUL-terminated).

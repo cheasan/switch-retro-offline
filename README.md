@@ -33,6 +33,11 @@ online:   ra-offline  ───────────────────�
   immediately, so gameplay is never blocked.
 - When the Switch comes online, the queue is replayed to the real server
   over the console's own TLS. Failed uploads stay queued and retry later.
+- Uploads identify themselves with a unique `ra-offline` user agent tag,
+  so RetroAchievements can tell them apart from live RetroArch traffic.
+- RetroAchievements requires the module to drop queued unlocks after
+  7 days, sent or not. Achievement logic changes often, and older
+  unlocks may no longer match it. Connect at least once a week.
 
 ## Requirements
 
@@ -171,6 +176,10 @@ uploaded and the queue file empties. Check your profile on
 retroachievements.org. Uploads retry automatically, so a flaky connection
 never loses anything. Leaderboard times sync the same way.
 
+Queued unlocks live for 7 days. Sync within a week: after that the
+module drops them, even if it never uploaded them. RetroAchievements
+requires this, because achievement logic changes frequently.
+
 ## Troubleshooting
 
 Read `/switch/raoffline/sysmodule.log` first. Each failed upload names the
@@ -199,7 +208,7 @@ Install [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the
 
 ```sh
 make                    # builds ra-offline.nsp
-bash test/run-tests.sh  # 37-check desktop test suite (no Switch needed)
+bash test/run-tests.sh  # 79-check desktop test suite (no Switch needed)
 ```
 
 The HTTP server, protocol mocking, caching and sync logic all run and get

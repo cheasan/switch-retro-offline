@@ -33,7 +33,11 @@ bool ra_net_online(void)
 
 long long ra_now(void)
 {
-    return (long long)(armTicksToNs(armGetSystemTick()) / 1000000000ULL);
+    /* Wall-clock epoch seconds, not uptime: queue entry timestamps
+     * must survive reboots so the sync worker can drop entries older
+     * than RA_QUEUE_TTL_S (the RetroAchievements 7-day rule).
+     * armGetSystemTick() resets at boot and would break that. */
+    return (long long)time(NULL);
 }
 
 #else /* host */
